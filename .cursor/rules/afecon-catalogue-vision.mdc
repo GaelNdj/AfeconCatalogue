@@ -1,0 +1,77 @@
+---
+description: Objectif produit, principes d'ingénierie et contraintes d'évolution d'AfeconCatalogue
+alwaysApply: true
+---
+
+# AfeconCatalogue — Vision & cap produit
+
+## Mission
+
+Boutique en ligne **professionnelle B2B** pour pièces techniques (plomberie, électricité, chauffage, etc.) — catalogue CEDEO (~20k références). Le visiteur consulte les **prix de vente HT**, compose un panier et **commande / demande un devis** si le prix convient.
+
+**But final** : un site fiable, propre, sécurisé, performant et facile à faire évoluer dans le temps.
+
+Ne pas dériver vers un simple viewer Excel, un clone GestBAT/GMAO, ni un site vitrine sans commande.
+
+## Principes d'ingénierie (priorité absolue)
+
+1. **Sécurité** — validation des données, protection des routes, gestion des rôles, paiement sécurisé, protection injections / XSS / CSRF
+2. **Maintenabilité** — code clair, lisible, documenté, modulaire
+3. **Simplicité** — aucune « usine à gaz » ; privilégier la solution la plus simple qui fonctionne
+
+Chaque fonctionnalité doit être **évolutive, testable et robuste**.
+
+## Périmètre fonctionnel
+
+| Module | Détail |
+|--------|--------|
+| Catalogue | Produits, familles / sous-familles, recherche paginée |
+| Références | Plusieurs références (SKU) sous une même photo / fiche produit |
+| Panier & commandes | Sélection, totaux HT, livraison, checkout |
+| Paiement | Intégration sécurisée (ex. Stripe) |
+| Stocks | Gestion des quantités disponibles |
+| Back-office | CRUD simple : ajouter / modifier / supprimer pièces, marges, import |
+| Contact | Demande si pièce introuvable (`/contact`) |
+
+## Parcours visiteur (référence)
+
+1. Recherche (code, réf., désignation)
+2. Fiche produit (image, références, prix vente HT)
+3. Panier (qté, sous-total, livraison HT)
+4. Checkout devis / commande + paiement sécurisé
+5. Pièce absente → `/contact`
+
+## Stack & perf
+
+- React + Vite + Tailwind v4 / Express + PostgreSQL
+- Images sur disque (`backend/uploads/`), pas en base
+- **Pagination + recherche côté serveur** — jamais charger 20k lignes dans le navigateur
+- UI catalogue pro teal/slate (AfeconCatalogue), pas le look GestBAT
+
+## Prix & import (règles métier)
+
+| Champ | Rôle | Mis à jour par |
+|-------|------|----------------|
+| `price_catalog_ht` | Prix CEDEO (achat/réf.) | Import Excel catalogue uniquement |
+| `price_sale_ht` | Prix client | Marges admin + « Recalculer les prix » + exceptions |
+| Exceptions/offres par `Code` | Prioritaires | Admin, jamais écrasées par import |
+
+- Import = **upsert par `Code` (7 chiffres)** — pas de wipe global
+- Réimport catalogue **ne doit jamais écraser** `price_sale_ht`, marges ni exceptions
+- Visiteur voit le prix de vente, pas le prix fournisseur
+
+## Roadmap (ordre préféré)
+
+1. Checkout / devis depuis le panier
+2. Commandes en base + e-mail admin
+3. Export PDF devis
+4. Paiement en ligne sécurisé (Stripe)
+5. Gestion stocks + admin suivi commandes
+
+## À éviter
+
+- Sur-ingénierie, abstractions prématurées, dépendances inutiles
+- Base44 comme backend de prod
+- Écraser toute la table à chaque import
+- Features hors parcours catalogue → panier → commande sans demande explicite
+- Négliger la sécurité (routes admin ouvertes, données non validées, paiement non conforme)
