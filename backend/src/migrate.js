@@ -95,6 +95,12 @@ ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS price_is_manual BOOLEAN NOT 
 ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS offer_price_ht NUMERIC(12, 4);
 ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS offer_label VARCHAR(255);
 ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS offer_ends_at TIMESTAMPTZ;
+ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS variant_label VARCHAR(500);
+ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS sort_order INT;
+ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS price_on_quote BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS edited_manually BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS price_sale_cdf NUMERIC(14, 2);
+ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS price_is_manual_cdf BOOLEAN NOT NULL DEFAULT false;
 
 UPDATE references_sku
 SET price_catalog_ht = price_ht

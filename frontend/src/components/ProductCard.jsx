@@ -2,9 +2,19 @@ import { Link } from 'react-router-dom';
 import { Package, ArrowUpRight } from 'lucide-react';
 import { imageUrl } from '../api.js';
 
+function refCountLabel(n) {
+  if (n <= 0) return 'Aucune référence';
+  if (n === 1) return '1 référence';
+  return `${n} références`;
+}
+
 export default function ProductCard({ product }) {
   const img = imageUrl(product.display_image || product.image_path);
   const refCount = product.ref_count || 0;
+  const subtitle =
+    product.description?.trim() ||
+    product.note?.trim() ||
+    refCountLabel(refCount);
 
   return (
     <Link
@@ -13,10 +23,10 @@ export default function ProductCard({ product }) {
     >
       <div className="relative flex aspect-[5/4] items-center justify-center overflow-hidden bg-gradient-to-b from-surface to-white">
         {img ? (
-          <img
+            <img
             src={img}
             alt={product.name}
-            className="h-full w-full object-contain p-6"
+            className="max-h-[78%] max-w-[78%] object-contain"
             loading="lazy"
           />
         ) : (
@@ -25,9 +35,9 @@ export default function ProductCard({ product }) {
             <span className="text-xs">Image à venir</span>
           </div>
         )}
-        {refCount > 1 && (
+        {refCount > 0 && (
           <span className="absolute right-3 top-3 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-brand shadow-sm backdrop-blur">
-            {refCount} refs
+            {refCount === 1 ? '1 réf.' : `${refCount} réf.`}
           </span>
         )}
       </div>
@@ -40,9 +50,7 @@ export default function ProductCard({ product }) {
         <h3 className="font-display mt-1 line-clamp-2 text-base font-bold leading-snug text-ink group-hover:text-brand">
           {product.name}
         </h3>
-        <p className="mt-2 line-clamp-2 flex-1 text-xs leading-relaxed text-muted">
-          {product.description || product.note || `${refCount} référence(s) disponible(s)`}
-        </p>
+        <p className="mt-2 line-clamp-2 flex-1 text-xs leading-relaxed text-muted">{subtitle}</p>
         <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-3 text-xs font-medium text-brand">
           <span>{product.category_name || product.family_name || 'Voir le détail'}</span>
           <ArrowUpRight className="h-4 w-4 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />

@@ -24,7 +24,7 @@ router.get('/', async (req, res, next) => {
     }
     if (q) {
       conditions.push(
-        `(r.code ILIKE $${i} OR r.ref_pro ILIKE $${i} OR r.ref_four ILIKE $${i} OR r.diameter ILIKE $${i})`
+        `(r.code ILIKE $${i} OR r.ref_pro ILIKE $${i} OR r.ref_four ILIKE $${i} OR r.diameter ILIKE $${i} OR r.variant_label ILIKE $${i})`
       );
       params.push(`%${q}%`);
       i++;
@@ -40,7 +40,7 @@ router.get('/', async (req, res, next) => {
        FROM references_sku r
        JOIN products p ON p.id = r.product_id
        ${where}
-       ORDER BY r.code
+       ORDER BY r.sort_order NULLS LAST, r.code
        LIMIT $${i++} OFFSET $${i++}`,
       [...params, limit, offset]
     );
@@ -67,18 +67,30 @@ router.post('/', async (req, res, next) => {
       diameter,
       vendu_par,
       price_ht,
+      price_catalog_ht,
+      price_sale_ht,
       note,
       image_path,
       stock,
       weight,
+      variant_label,
+      sort_order,
+      price_sale_cdf,
+      price_is_manual_cdf,
     } = req.body;
     if (!code?.trim() || !product_id) {
       return res.status(400).json({ error: 'code et product_id requis' });
     }
+    const catalogPrice = price_catalog_ht ?? price_ht ?? null;
+    const manualCdf =
+      price_is_manual_cdf === true ||
+      (price_sale_cdf != null && price_sale_cdf !== '' && price_is_manual_cdf !== false);
     const r = await query(
       `INSERT INTO references_sku
-        (code, product_id, ref_pro, ref_four, diameter, vendu_par, price_ht, note, image_path, stock, weight)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        (code, product_id, ref_pro, ref_four, diameter, vendu_par, price_ht, price_catalog_ht,
+         price_sale_ht, note, image_path, stock, weight, variant_label, sort_order,
+         price_sale_cdf, price_is_manual_cdf, edited_manually)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,true) RETURNING *`,
       [
         String(code).trim(),
         product_id,
@@ -86,11 +98,17 @@ router.post('/', async (req, res, next) => {
         ref_four || null,
         diameter || null,
         vendu_par || null,
-        price_ht ?? null,
+        catalogPrice,
+        catalogPrice,
+        price_sale_ht ?? null,
         note || null,
         image_path || null,
         stock ?? 0,
         weight ?? null,
+        variant_label || null,
+        sort_order ?? null,
+        price_sale_cdf != null && price_sale_cdf !== '' ? Number(price_sale_cdf) : null,
+        manualCdf,
       ]
     );
     res.status(201).json(r.rows[0]);
@@ -110,11 +128,24 @@ router.put('/:id', async (req, res, next) => {
       diameter,
       vendu_par,
       price_ht,
+      price_catalog_ht,
+      price_sale_ht,
       note,
       image_path,
       stock,
       weight,
+      variant_label,
+      sort_order,
+      price_sale_cdf,
+      price_is_manual_cdf,
     } = req.body;
+    const catalogPrice =
+      price_catalog_ht !== undefined ? price_catalog_ht : price_ht !== undefined ? price_ht : null;
+    const cdfVal =
+      price_sale_cdf === '' || price_sale_cdf == null ? null : Number(price_sale_cdf);
+    const manualCdf =
+      price_is_manual_cdf === true ||
+      (cdfVal != null && Number.isFinite(cdfVal) && price_is_manual_cdf !== false);
     const r = await query(
       `UPDATE references_sku SET
          code = COALESCE($1, code),
@@ -124,12 +155,19 @@ router.put('/:id', async (req, res, next) => {
          diameter = COALESCE($5, diameter),
          vendu_par = COALESCE($6, vendu_par),
          price_ht = COALESCE($7, price_ht),
-         note = COALESCE($8, note),
-         image_path = COALESCE($9, image_path),
-         stock = COALESCE($10, stock),
-         weight = COALESCE($11, weight),
+         price_catalog_ht = COALESCE($8, price_catalog_ht),
+         price_sale_ht = COALESCE($9, price_sale_ht),
+         note = COALESCE($10, note),
+         image_path = COALESCE($11, image_path),
+         stock = COALESCE($12, stock),
+         weight = COALESCE($13, weight),
+         variant_label = COALESCE($14, variant_label),
+         sort_order = COALESCE($15, sort_order),
+         price_sale_cdf = $16,
+         price_is_manual_cdf = $17,
+         edited_manually = true,
          updated_at = NOW()
-       WHERE id = $12 RETURNING *`,
+       WHERE id = $18 RETURNING *`,
       [
         code != null ? String(code).trim() : null,
         product_id ?? null,
@@ -137,11 +175,17 @@ router.put('/:id', async (req, res, next) => {
         ref_four ?? null,
         diameter ?? null,
         vendu_par ?? null,
-        price_ht ?? null,
+        catalogPrice,
+        catalogPrice,
+        price_sale_ht ?? null,
         note ?? null,
         image_path ?? null,
         stock ?? null,
         weight ?? null,
+        variant_label ?? null,
+        sort_order ?? null,
+        cdfVal,
+        manualCdf,
         req.params.id,
       ]
     );

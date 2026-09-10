@@ -7,8 +7,9 @@ export default function AdminImport() {
   const [images, setImages] = useState([]);
   const [imagesZip, setImagesZip] = useState(null);
   const [imagesDir, setImagesDir] = useState(
-    '/Users/gael/Desktop/catalogue_pro_2026_images_hq'
+    '/Users/gael/Desktop/catalogue/images_hq'
   );
+  const [importMode, setImportMode] = useState('sync');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [logs, setLogs] = useState([]);
@@ -33,6 +34,7 @@ export default function AdminImport() {
       }
       if (imagesZip) fd.append('images_zip', imagesZip);
       if (imagesDir.trim()) fd.append('images_dir', imagesDir.trim());
+      fd.append('import_mode', importMode);
       const res = await api.importCatalog(fd);
       setResult(res);
     } catch (err) {
@@ -49,11 +51,45 @@ export default function AdminImport() {
     <div className="max-w-2xl">
       <h2 className="font-display text-xl font-bold text-ink">Import catalogue</h2>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        Mise à jour intelligente par <strong className="text-ink">Code</strong> (7 chiffres) :
-        seules les lignes modifiées sont mises à jour, les autres restent intactes.
+        Mise à jour par <strong className="text-ink">Code</strong> (7 chiffres).
+        En mode <strong className="text-ink">Sync catalogue</strong>, les désignations corrigées en
+        admin ne sont pas écrasées.
       </p>
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
+        <div className="card px-5 py-4">
+          <div className="text-sm font-semibold text-ink">Mode d’import</div>
+          <div className="mt-3 space-y-2 text-sm">
+            <label className="flex cursor-pointer items-start gap-2">
+              <input
+                type="radio"
+                name="import_mode"
+                value="sync"
+                checked={importMode === 'sync'}
+                onChange={() => setImportMode('sync')}
+                className="mt-1"
+              />
+              <span>
+                <strong>Sync catalogue</strong> (recommandé) — met à jour prix catalogue, prix sur
+                devis, images et nouveaux codes. Conserve les désignations modifiées en admin.
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2">
+              <input
+                type="radio"
+                name="import_mode"
+                value="full"
+                checked={importMode === 'full'}
+                onChange={() => setImportMode('full')}
+                className="mt-1"
+              />
+              <span>
+                <strong>Import complet</strong> — réécrit toutes les colonnes depuis l’Excel (1er
+                import ou réinitialisation).
+              </span>
+            </label>
+          </div>
+        </div>
         <label className={dropClass}>
           <div className="flex items-center gap-2 text-sm font-semibold text-ink">
             <FileSpreadsheet className="h-5 w-5 text-brand" />
@@ -109,7 +145,7 @@ export default function AdminImport() {
             className="mt-3 w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm outline-none focus:border-brand/40 focus:ring-2 focus:ring-brand/10"
             value={imagesDir}
             onChange={(e) => setImagesDir(e.target.value)}
-            placeholder="/Users/gael/Desktop/catalogue_pro_2026_images_hq"
+            placeholder="/Users/gael/Desktop/catalogue/images_hq"
           />
         </label>
 
@@ -132,8 +168,10 @@ export default function AdminImport() {
           <ul className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
             {[
               ['Lignes lues', result.rows],
+              ['Mode', result.importMode === 'full' ? 'Complet' : 'Sync'],
               ['Ajoutées', result.added],
               ['Mises à jour', result.updated],
+              ['Sync protégées', result.catalogSynced],
               ['Inchangées', result.unchanged],
               ['Erreurs', result.errors],
               ['Images', result.imagesImported],

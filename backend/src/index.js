@@ -12,6 +12,7 @@ import referencesRouter from './routes/references.js';
 import importRouter from './routes/import.js';
 import contactRouter from './routes/contact.js';
 import pricingRouter from './routes/pricing.js';
+import configRouter from './routes/config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env') });
@@ -53,6 +54,7 @@ app.use('/api/references', referencesRouter);
 app.use('/api/import', importRouter);
 app.use('/api/contact', contactLimiter, contactRouter);
 app.use('/api/pricing', pricingRouter);
+app.use('/api/config', configRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

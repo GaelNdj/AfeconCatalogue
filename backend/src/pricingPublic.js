@@ -4,12 +4,21 @@ import {
   computeSaleFromCatalog,
   roundPrice,
 } from './pricing.js';
+import { applyPublicCurrency } from './currency.js';
 
 /**
  * Prix visiteur : marges appliquées dynamiquement sauf prix manuel / exception / offre.
  * N'expose jamais price_catalog_ht.
  */
 export function resolvePublicDisplayPrice(ref, product, marginRules, exception) {
+  if (ref.price_on_quote) {
+    return {
+      display_price_ht: null,
+      price_source: 'quote',
+      offer_label: null,
+    };
+  }
+
   const catalog = ref.price_catalog_ht ?? ref.price_ht ?? null;
 
   if (exception?.active !== false) {
@@ -57,6 +66,7 @@ export function resolvePublicDisplayPrice(ref, product, marginRules, exception) 
 
 export function enrichReferencePublic(ref, product, marginRules, exception) {
   const pricing = resolvePublicDisplayPrice(ref, product, marginRules, exception);
+  const withCurrency = applyPublicCurrency(pricing, ref);
   return {
     id: ref.id,
     code: ref.code,
@@ -67,8 +77,15 @@ export function enrichReferencePublic(ref, product, marginRules, exception) {
     vendu_par: ref.vendu_par,
     note: ref.note,
     image_path: ref.image_path,
-    display_price_ht: pricing.display_price_ht,
-    price_source: pricing.price_source,
-    offer_label: pricing.offer_label,
+    variant_label: ref.variant_label,
+    sort_order: ref.sort_order,
+    display_price_ht: withCurrency.display_price_ht,
+    display_price_cdf: withCurrency.display_price_cdf,
+    display_price_usd: withCurrency.display_price_usd,
+    price_source: withCurrency.price_source,
+    price_currency_mode: withCurrency.price_currency_mode,
+    price_on_quote: Boolean(ref.price_on_quote),
+    price_is_manual_cdf: Boolean(ref.price_is_manual_cdf),
+    offer_label: withCurrency.offer_label,
   };
 }

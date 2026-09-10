@@ -1,25 +1,28 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ShoppingBag, Trash2, Truck } from 'lucide-react';
-import { formatPrice, api } from '../api.js';
+import { api, formatCdf, eurToCdf, eurToUsd } from '../api.js';
 import { useCart } from '../context/CartContext.jsx';
+import PriceDisplay from '../components/PriceDisplay.jsx';
 
 export default function CartPage() {
-  const { items, setQty, clear, count, total } = useCart();
+  const { items, setQty, clear, count, total_cdf, total_eur } = useCart();
   const [shipping, setShipping] = useState(null);
 
   useEffect(() => {
-    if (total <= 0) {
+    if (total_eur <= 0) {
       setShipping(null);
       return;
     }
     api
-      .calculateShipping({ subtotal_ht: total })
+      .calculateShipping({ subtotal_ht: total_eur })
       .then(setShipping)
       .catch(() => setShipping(null));
-  }, [total]);
+  }, [total_eur]);
 
-  const grandTotal = total + (shipping?.fee_ht || 0);
+  const shippingCdf = shipping?.free_shipping ? 0 : eurToCdf(shipping?.fee_ht ?? 0);
+  const shippingUsd = shipping?.free_shipping ? 0 : eurToUsd(shipping?.fee_ht ?? 0);
+  const grandTotalCdf = total_cdf + shippingCdf;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
@@ -55,6 +58,7 @@ export default function CartPage() {
                   <div className="min-w-0 flex-1">
                     <div className="font-semibold text-ink">{i.productName}</div>
                     <div className="mt-0.5 text-xs text-muted">
+                      {i.variant_label && `${i.variant_label} · `}
                       {i.diameter && `${i.diameter} · `}
                       Réf. {i.ref_pro || '—'} · Code {i.code}
                       {i.offer_label && (
@@ -62,7 +66,7 @@ export default function CartPage() {
                       )}
                     </div>
                   </div>
-                  <div className="text-sm font-medium text-muted">{formatPrice(i.price_ht)}</div>
+                  <PriceDisplay cdf={i.price_cdf} usd={i.price_usd} />
                   <input
                     type="number"
                     min={0}
@@ -70,8 +74,8 @@ export default function CartPage() {
                     value={i.qty}
                     onChange={(e) => setQty(i.code, parseInt(e.target.value, 10) || 0)}
                   />
-                  <div className="min-w-[5rem] text-right text-sm font-bold text-brand-dark">
-                    {formatPrice(i.qty * i.price_ht)}
+                  <div className="min-w-[6rem] text-right">
+                    <PriceDisplay cdf={i.qty * i.price_cdf} usd={i.qty * i.price_usd} />
                   </div>
                 </div>
               ))}
@@ -85,7 +89,7 @@ export default function CartPage() {
             </div>
             <div className="mt-2 flex justify-between text-sm">
               <span className="text-muted">Sous-total articles HT</span>
-              <span className="font-medium">{formatPrice(total)}</span>
+              <span className="font-medium">{formatCdf(total_cdf)}</span>
             </div>
             <div className="mt-1 flex justify-between text-sm">
               <span className="text-muted">
@@ -98,14 +102,14 @@ export default function CartPage() {
                 {shipping?.free_shipping ? (
                   <span className="text-brand">Offert</span>
                 ) : (
-                  formatPrice(shipping?.fee_ht ?? 0)
+                  <PriceDisplay cdf={shippingCdf} usd={shippingUsd} />
                 )}
               </span>
             </div>
             <div className="mt-3 flex justify-between border-t border-border pt-3">
               <span className="font-display font-bold text-ink">Total HT</span>
               <span className="font-display text-xl font-bold text-ink">
-                {formatPrice(grandTotal)}
+                {formatCdf(grandTotalCdf)}
               </span>
             </div>
           </div>

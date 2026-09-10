@@ -26,6 +26,8 @@ router.get('/', async (req, res, next) => {
       conditions.push(`p.category_id = $${i++}`);
       params.push(categoryId);
     }
+    // Catalogue public : masquer les fiches sans référence vendable
+    conditions.push(`EXISTS (SELECT 1 FROM references_sku r WHERE r.product_id = p.id)`);
     if (q) {
       conditions.push(`(
         p.name ILIKE $${i} OR p.brand ILIKE $${i} OR p.description ILIKE $${i}
@@ -93,7 +95,7 @@ router.get('/:id', async (req, res, next) => {
 
     const refs = await query(
       `SELECT * FROM references_sku WHERE product_id = $1
-       ORDER BY diameter NULLS LAST, code`,
+       ORDER BY sort_order NULLS LAST, code`,
       [req.params.id]
     );
 

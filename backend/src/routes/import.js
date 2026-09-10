@@ -45,32 +45,20 @@ function resolveAllowedImagesDir(inputDir) {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const allowedBases = allowedRaw.flatMap((s) => macHomeFolderAliases(s).map(existingRealpath));
-  if (!allowedBases.length) return null;
+  const catalogueRoots = [
+    '/Users/gael/Desktop/catalogue',
+    '/Users/gael/Bureau/catalogue',
+  ].flatMap((s) => macHomeFolderAliases(s).map(existingRealpath));
+  const allowedBases = [
+    ...allowedRaw.flatMap((s) => macHomeFolderAliases(s).map(existingRealpath)),
+    ...catalogueRoots,
+  ];
+  const uniqueBases = [...new Set(allowedBases)];
+  if (!uniqueBases.length) return null;
   const matched = resolvedCandidates.find((resolved) =>
-    allowedBases.some((base) => resolved === base || resolved.startsWith(`${base}${path.sep}`))
+    uniqueBases.some((base) => resolved === base || resolved.startsWith(`${base}${path.sep}`))
   );
   const exists = matched ? fs.existsSync(matched) : false;
-  // #region agent log
-  fetch('http://127.0.0.1:7581/ingest/20d23877-a71f-467f-86e2-87ccf471af2f', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '913862' },
-    body: JSON.stringify({
-      sessionId: '913862',
-      hypothesisId: 'A',
-      location: 'import.js:resolveAllowedImagesDir',
-      message: 'images dir allowlist check',
-      data: {
-        input: raw,
-        envDir: process.env.IMAGES_IMPORT_DIR || '',
-        matched: matched || null,
-        exists,
-        allowedBases,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   return exists ? matched : null;
 }
 
@@ -87,6 +75,9 @@ const COL_MAP = {
   marque: 'brand',
   désignation: 'designation',
   designation: 'designation',
+  variante: 'variant_label',
+  'désignation variante': 'variant_label',
+  ordre: 'sort_order',
   code: 'code',
   famille: 'family',
   catégorie: 'category',
@@ -132,6 +123,16 @@ function normPrice(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+const PRICE_COURS_RE = /prix\s*[àa]?\s*cours/i;
+
+function parsePriceCell(v) {
+  if (v == null || v === '') return { catalog: null, onQuote: false };
+  if (typeof v === 'number') return { catalog: v, onQuote: false };
+  const raw = String(v).trim();
+  if (PRICE_COURS_RE.test(raw)) return { catalog: null, onQuote: true };
+  return { catalog: normPrice(raw), onQuote: false };
+}
+
 function same(a, b) {
   const na = a == null || a === '' ? null : String(a);
   const nb = b == null || b === '' ? null : String(b);
@@ -143,6 +144,55 @@ function same(a, b) {
     return fa === fb;
   }
   return na === nb;
+}
+
+function resolveImportMode(raw) {
+  const m = String(raw || 'sync').trim().toLowerCase();
+  return m === 'full' ? 'full' : 'sync';
+}
+
+/** En mode sync : conserve les champs métier si la référence a été modifiée en admin. */
+function effectivePayloadForUpdate(cur, payload, importMode) {
+  const sync = importMode === 'sync';
+  const protectedRef = sync && cur.edited_manually;
+  if (!protectedRef) {
+    return { eff: payload, protectedRef: false };
+  }
+  return {
+    eff: {
+      ...payload,
+      product_id: cur.product_id,
+      ref_pro: cur.ref_pro,
+      ref_four: cur.ref_four,
+      diameter: cur.diameter,
+      vendu_par: cur.vendu_par,
+      note: cur.note,
+      variant_label: cur.variant_label,
+      sort_order: cur.sort_order,
+      price_catalog_ht: payload.price_catalog_ht,
+      price_on_quote: payload.price_on_quote,
+      price_sale_cdf: cur.price_sale_cdf,
+      price_is_manual_cdf: cur.price_is_manual_cdf,
+      image_path: payload.image_path || cur.image_path,
+    },
+    protectedRef: true,
+  };
+}
+
+function referenceRowChanged(cur, eff) {
+  return (
+    !same(cur.product_id, eff.product_id) ||
+    !same(cur.ref_pro, eff.ref_pro) ||
+    !same(cur.ref_four, eff.ref_four) ||
+    !same(cur.diameter, eff.diameter) ||
+    !same(cur.vendu_par, eff.vendu_par) ||
+    !same(cur.price_catalog_ht ?? cur.price_ht, eff.price_catalog_ht) ||
+    !same(cur.price_on_quote, eff.price_on_quote) ||
+    !same(cur.note, eff.note) ||
+    !same(cur.variant_label, eff.variant_label) ||
+    !same(cur.sort_order, eff.sort_order) ||
+    (eff.image_path && !same(cur.image_path, eff.image_path))
+  );
 }
 
 async function ensureFamily(client, name) {
@@ -308,33 +358,18 @@ router.post(
           if (ingestImageFile(full, name, imageMap)) imagesImported++;
         }
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7581/ingest/20d23877-a71f-467f-86e2-87ccf471af2f', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '913862' },
-        body: JSON.stringify({
-          sessionId: '913862',
-          hypothesisId: 'B',
-          location: 'import.js:POST',
-          message: 'after images dir ingest',
-          data: {
-            bodyDir: req.body.images_dir || null,
-            resolvedDir: imagesDir,
-            imagesImported,
-            mapSize: imageMap.size,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
 
       const workbook = XLSX.readFile(xlsxFile.path);
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: null });
 
+      const importMode = resolveImportMode(req.body.import_mode);
+
       let added = 0;
       let updated = 0;
       let unchanged = 0;
+      let catalogSynced = 0;
+      let protectedSkipped = 0;
       let errors = 0;
       const errorSamples = [];
 
@@ -361,6 +396,7 @@ router.post(
             imagePath
           );
 
+          const priceInfo = parsePriceCell(row.price_ht);
           const payload = {
             code,
             product_id: productId,
@@ -368,8 +404,11 @@ router.post(
             ref_four: normStr(row.ref_four),
             diameter: normStr(row.diameter),
             vendu_par: normStr(row.vendu_par),
-            price_catalog_ht: normPrice(row.price_ht),
+            price_catalog_ht: priceInfo.catalog,
+            price_on_quote: priceInfo.onQuote,
             note: normStr(row.note),
+            variant_label: normStr(row.variant_label),
+            sort_order: row.sort_order == null || row.sort_order === '' ? null : parseInt(row.sort_order, 10) || null,
             image_path: imagePath,
           };
 
@@ -381,8 +420,9 @@ router.post(
           if (!existing.rows[0]) {
             await client.query(
               `INSERT INTO references_sku
-                (code, product_id, ref_pro, ref_four, diameter, vendu_par, price_ht, price_catalog_ht, note, image_path)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9)`,
+                (code, product_id, ref_pro, ref_four, diameter, vendu_par, price_ht, price_catalog_ht,
+                 price_on_quote, note, variant_label, sort_order, image_path)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,$12)`,
               [
                 payload.code,
                 payload.product_id,
@@ -391,22 +431,18 @@ router.post(
                 payload.diameter,
                 payload.vendu_par,
                 payload.price_catalog_ht,
+                payload.price_on_quote,
                 payload.note,
+                payload.variant_label,
+                Number.isFinite(payload.sort_order) ? payload.sort_order : null,
                 payload.image_path,
               ]
             );
             added++;
           } else {
             const cur = existing.rows[0];
-            const changed =
-              !same(cur.product_id, payload.product_id) ||
-              !same(cur.ref_pro, payload.ref_pro) ||
-              !same(cur.ref_four, payload.ref_four) ||
-              !same(cur.diameter, payload.diameter) ||
-              !same(cur.vendu_par, payload.vendu_par) ||
-              !same(cur.price_catalog_ht ?? cur.price_ht, payload.price_catalog_ht) ||
-              !same(cur.note, payload.note) ||
-              (payload.image_path && !same(cur.image_path, payload.image_path));
+            const { eff, protectedRef } = effectivePayloadForUpdate(cur, payload, importMode);
+            const changed = referenceRowChanged(cur, eff);
 
             if (changed) {
               await client.query(
@@ -418,25 +454,33 @@ router.post(
                    vendu_par = $5,
                    price_catalog_ht = $6,
                    price_ht = $6,
-                   note = $7,
-                   image_path = COALESCE($8, image_path),
+                   price_on_quote = $7,
+                   note = $8,
+                   variant_label = $9,
+                   sort_order = $10,
+                   image_path = COALESCE($11, image_path),
                    updated_at = NOW()
-                 WHERE code = $9`,
+                 WHERE code = $12`,
                 [
-                  payload.product_id,
-                  payload.ref_pro,
-                  payload.ref_four,
-                  payload.diameter,
-                  payload.vendu_par,
-                  payload.price_catalog_ht,
-                  payload.note,
-                  payload.image_path,
+                  eff.product_id,
+                  eff.ref_pro,
+                  eff.ref_four,
+                  eff.diameter,
+                  eff.vendu_par,
+                  eff.price_catalog_ht,
+                  eff.price_on_quote,
+                  eff.note,
+                  eff.variant_label,
+                  Number.isFinite(eff.sort_order) ? eff.sort_order : null,
+                  eff.image_path,
                   code,
                 ]
               );
               updated++;
+              if (protectedRef) catalogSynced++;
             } else {
               unchanged++;
+              if (protectedRef) protectedSkipped++;
             }
           }
         } catch (rowErr) {
@@ -456,7 +500,13 @@ router.post(
           updated,
           unchanged,
           errors,
-          JSON.stringify({ errorSamples, images: imagesImported }),
+          JSON.stringify({
+            errorSamples,
+            images: imagesImported,
+            importMode,
+            catalogSynced,
+            protectedSkipped,
+          }),
         ]
       );
 
@@ -472,9 +522,12 @@ router.post(
         ok: true,
         filename: xlsxFile.originalname,
         rows: rawRows.length,
+        importMode,
         added,
         updated,
         unchanged,
+        catalogSynced,
+        protectedSkipped,
         errors,
         imagesImported,
         errorSamples,

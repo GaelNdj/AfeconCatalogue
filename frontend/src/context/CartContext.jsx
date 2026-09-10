@@ -20,9 +20,12 @@ export function CartProvider({ children }) {
           code: ref.code,
           ref_pro: ref.ref_pro,
           diameter: ref.diameter,
-          price_ht: Number(ref.display_price_ht) || 0,
+          price_cdf: Number(ref.display_price_cdf) || 0,
+          price_usd: Number(ref.display_price_usd) || 0,
+          price_eur_ht: Number(ref.display_price_ht) || 0,
           price_source: ref.price_source,
           offer_label: ref.offer_label,
+          variant_label: ref.variant_label,
           qty,
           productName,
         },
@@ -42,8 +45,21 @@ export function CartProvider({ children }) {
 
   const value = useMemo(() => {
     const count = items.reduce((s, i) => s + i.qty, 0);
-    const total = items.reduce((s, i) => s + i.qty * i.price_ht, 0);
-    return { items, addItem, setQty, clear, count, total };
+    const total_cdf = items.reduce((s, i) => s + i.qty * i.price_cdf, 0);
+    const total_eur = items.reduce((s, i) => s + i.qty * i.price_eur_ht, 0);
+    const total_usd = items.reduce((s, i) => s + i.qty * i.price_usd, 0);
+    return {
+      items,
+      addItem,
+      setQty,
+      clear,
+      count,
+      total_cdf,
+      total_eur,
+      total_usd,
+      /** @deprecated utilisez total_cdf */
+      total: total_cdf,
+    };
   }, [items, addItem, setQty, clear]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

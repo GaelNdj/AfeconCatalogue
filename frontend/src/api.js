@@ -139,6 +139,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  getCurrencyConfig: () => request('/api/config/currency'),
 };
 
 export function imageUrl(path) {
@@ -155,4 +156,59 @@ export function formatPrice(n) {
     style: 'currency',
     currency: 'EUR',
   }).format(num);
+}
+
+export function isQuotePrice(ref) {
+  return ref?.price_source === 'quote' || ref?.price_on_quote === true;
+}
+
+export const QUOTE_PRICE_TITLE = 'Prix sur devis';
+export const QUOTE_PRICE_HINT = 'Contactez votre conseiller';
+
+let currencyRates = { eur_to_cdf: 2850, eur_to_usd: 1.08 };
+
+export async function loadCurrencyConfig() {
+  try {
+    currencyRates = await api.getCurrencyConfig();
+  } catch {
+    /* garde les valeurs par défaut */
+  }
+  return currencyRates;
+}
+
+export function getCurrencyRates() {
+  return currencyRates;
+}
+
+export function formatCdf(n) {
+  if (n == null || n === '') return '—';
+  const num = Number(n);
+  if (!Number.isFinite(num)) return '—';
+  return `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(num)} CDF`;
+}
+
+export function formatUsd(n) {
+  if (n == null || n === '') return '—';
+  const num = Number(n);
+  if (!Number.isFinite(num)) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+}
+
+export function eurToCdf(eur) {
+  const rates = getCurrencyRates();
+  const num = Number(eur);
+  if (!Number.isFinite(num)) return 0;
+  return Math.round(num * rates.eur_to_cdf);
+}
+
+export function eurToUsd(eur) {
+  const rates = getCurrencyRates();
+  const num = Number(eur);
+  if (!Number.isFinite(num)) return 0;
+  return Math.round(num * rates.eur_to_usd * 100) / 100;
 }

@@ -85,7 +85,10 @@ L’API fait un **upsert par `Code`** :
 | code existant, champs différents | update |
 | code existant, identique | **unchanged** (pas d’écriture) |
 
-Colonnes attendues : `Réf.Pro`, `Réf.Four`, `Diamètre`, `Vendu par`, `Marque`, `Désignation`, `Code`, `Famille`, `Catégorie`, `Prix HT`, `Note`, `Image`.
+Colonnes attendues : `Réf.Pro`, `Réf.Four`, `Diamètre`, `Vendu par`, `Marque`, `Désignation`, `Variante`, `Ordre`, `Code`, `Famille`, `Catégorie`, `Prix HT`, `Note`, `Image`.
+
+- `Désignation` = nom de la fiche produit (regroupe les variantes)
+- `Variante` = libellé spécifique de chaque référence (ligne catalogue)
 
 ## Structure
 
@@ -124,6 +127,9 @@ SMTP_PORT=587
 SMTP_USER=...
 SMTP_PASS=...
 SMTP_FROM="AfeconCatalogue" <...>
+
+EUR_TO_CDF=2850
+EUR_TO_USD=1.08
 ```
 
 ## Sécurité
@@ -156,7 +162,13 @@ L’admin web demande la clé au premier accès (`/admin`) — elle est stockée
 
 ### Prix affiché au visiteur
 
-Le visiteur voit le **prix de vente HT** (`price_sale_ht` ou calcul dynamique avec marge), pas le prix catalogue fournisseur. Après modification des marges, cliquer sur **Recalculer les prix** en admin.
+Le visiteur voit le prix en **francs congolais (CDF)** en principal, avec l’équivalent **USD** en secondaire. La conversion est faite côté serveur à partir du prix de vente EUR HT (marge appliquée), via les taux configurables `EUR_TO_CDF` et `EUR_TO_USD` dans `backend/.env`.
+
+- **Conversion automatique** : `prix vente EUR × EUR_TO_CDF` → CDF affiché
+- **Prix fixe CDF** (admin) : colonne « Prix fixe CDF » sur une référence — prioritaire sur la conversion ; l’USD est dérivé du CDF
+- **Prix sur devis** : articles cuivre « Prix à cours » — pas de montant affiché
+
+Après modification des marges, cliquer sur **Recalculer les prix** en admin. Les prix CDF manuels ne sont pas écrasés par l’import catalogue (mode sync).
 
 ## Roadmap boutique (prochaines étapes)
 

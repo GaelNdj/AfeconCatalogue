@@ -4,10 +4,12 @@ import { api, formatPrice } from '../../api.js';
 
 const emptyRef = {
   code: '',
+  variant_label: '',
   diameter: '',
   ref_pro: '',
   ref_four: '',
-  price_ht: '',
+  price_catalog_ht: '',
+  price_sale_cdf: '',
   vendu_par: '1',
   stock: 0,
   weight: '',
@@ -50,10 +52,12 @@ export default function AdminReferences() {
   function openEdit(r) {
     setForm({
       code: r.code || '',
+      variant_label: r.variant_label || '',
       diameter: r.diameter || '',
       ref_pro: r.ref_pro || '',
       ref_four: r.ref_four || '',
-      price_ht: r.price_ht ?? '',
+      price_catalog_ht: r.price_catalog_ht ?? r.price_ht ?? '',
+      price_sale_cdf: r.price_sale_cdf ?? '',
       vendu_par: r.vendu_par || '1',
       stock: r.stock ?? 0,
       weight: r.weight ?? '',
@@ -63,10 +67,21 @@ export default function AdminReferences() {
 
   async function save() {
     try {
+      const price =
+        form.price_catalog_ht === '' ? null : Number(form.price_catalog_ht);
+      const cdf =
+        form.price_sale_cdf === '' ? null : Number(form.price_sale_cdf);
       const body = {
-        ...form,
+        code: form.code,
         product_id: selectedId,
-        price_ht: form.price_ht === '' ? null : Number(form.price_ht),
+        variant_label: form.variant_label.trim() || null,
+        diameter: form.diameter || null,
+        ref_pro: form.ref_pro || null,
+        ref_four: form.ref_four || null,
+        price_catalog_ht: Number.isFinite(price) ? price : null,
+        price_sale_cdf: Number.isFinite(cdf) ? cdf : null,
+        price_is_manual_cdf: Number.isFinite(cdf),
+        vendu_par: form.vendu_par || '1',
         stock: Number(form.stock) || 0,
         weight: form.weight === '' ? null : Number(form.weight),
       };
@@ -129,10 +144,11 @@ export default function AdminReferences() {
           <table className="w-full min-w-[800px] text-sm">
             <thead className="bg-gray-50 text-left text-[10px] font-semibold uppercase tracking-wide text-muted">
               <tr>
+                <th className="px-3 py-2">Désignation</th>
                 <th className="px-3 py-2">Dimensions</th>
                 <th className="px-3 py-2">Réf. interne</th>
                 <th className="px-3 py-2">Code</th>
-                <th className="px-3 py-2">Prix HT</th>
+                <th className="px-3 py-2">Prix cat. HT</th>
                 <th className="px-3 py-2">Cond.</th>
                 <th className="px-3 py-2">Stock</th>
                 <th className="px-3 py-2">Poids</th>
@@ -142,10 +158,13 @@ export default function AdminReferences() {
             <tbody>
               {refs.map((r) => (
                 <tr key={r.id} className="border-t border-border">
+                  <td className="px-3 py-2 font-semibold">{r.variant_label || '—'}</td>
                   <td className="px-3 py-2 font-semibold">{r.diameter || '—'}</td>
                   <td className="px-3 py-2 text-muted">{r.ref_pro || '—'}</td>
                   <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
-                  <td className="px-3 py-2 font-semibold">{formatPrice(r.price_ht)}</td>
+                  <td className="px-3 py-2 font-semibold">
+                    {formatPrice(r.price_catalog_ht ?? r.price_ht)}
+                  </td>
                   <td className="px-3 py-2 text-muted">×{r.vendu_par || '1'}</td>
                   <td className="px-3 py-2">{r.stock ?? 0}</td>
                   <td className="px-3 py-2 text-muted">
@@ -190,10 +209,12 @@ export default function AdminReferences() {
             <div className="grid grid-cols-2 gap-3 px-5 py-4">
               {[
                 ['code', 'Code *'],
+                ['variant_label', 'Désignation variante'],
                 ['diameter', 'Dimensions'],
                 ['ref_pro', 'Réf. interne'],
                 ['ref_four', 'Réf. four.'],
-                ['price_ht', 'Prix HT'],
+                ['price_catalog_ht', 'Prix catalogue € HT'],
+                ['price_sale_cdf', 'Prix fixe CDF (vente)'],
                 ['vendu_par', 'Cond.'],
                 ['stock', 'Stock'],
                 ['weight', 'Poids'],

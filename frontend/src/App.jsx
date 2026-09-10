@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
+import { loadCurrencyConfig } from './api.js';
 import Header from './components/Header.jsx';
 import CatalogPage from './pages/CatalogPage.jsx';
 import ProductPage from './pages/ProductPage.jsx';
@@ -13,6 +15,10 @@ import AdminShipping from './pages/admin/AdminShipping.jsx';
 import ContactPage from './pages/ContactPage.jsx';
 
 export default function App() {
+  useEffect(() => {
+    loadCurrencyConfig().catch(console.error);
+  }, []);
+
   return (
     <div className="min-h-screen bg-surface">
       <Header />
