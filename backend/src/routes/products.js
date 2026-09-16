@@ -28,13 +28,23 @@ router.get('/', async (req, res, next) => {
     }
     // Catalogue public : masquer les fiches sans référence vendable
     conditions.push(`EXISTS (SELECT 1 FROM references_sku r WHERE r.product_id = p.id)`);
+    const expected = process.env.ADMIN_API_KEY;
+    const isAdminList = Boolean(expected) && req.get('X-Admin-Key') === expected;
+    if (!isAdminList) {
+      conditions.push(
+        `(p.family_id IS NULL OR EXISTS (
+           SELECT 1 FROM families vis WHERE vis.id = p.family_id AND COALESCE(vis.visible, true)
+         ))`
+      );
+    }
     if (q) {
       conditions.push(`(
         p.name ILIKE $${i} OR p.brand ILIKE $${i} OR p.description ILIKE $${i}
         OR EXISTS (
           SELECT 1 FROM references_sku r
           WHERE r.product_id = p.id
-            AND (r.code ILIKE $${i} OR r.ref_pro ILIKE $${i} OR r.ref_four ILIKE $${i})
+            AND (r.code ILIKE $${i} OR r.internal_code ILIKE $${i}
+              OR r.ref_pro ILIKE $${i} OR r.ref_four ILIKE $${i})
         )
       )`);
       params.push(`%${q}%`);
@@ -142,7 +152,11 @@ router.put('/:id', requireAdmin, async (req, res, next) => {
          note = COALESCE($4, note),
          family_id = COALESCE($5, family_id),
          category_id = COALESCE($6, category_id),
-         image_path = COALESCE($7, image_path),
+         image_path = CASE WHEN $9 THEN $7 ELSE image_path END,
+         image_edited_manually = CASE
+           WHEN $9 AND NOT COALESCE(image_path, '') = COALESCE($7, '') THEN true
+           ELSE image_edited_manually
+         END,
          updated_at = NOW()
        WHERE id = $8 RETURNING *`,
       [
@@ -152,8 +166,10 @@ router.put('/:id', requireAdmin, async (req, res, next) => {
         note ?? null,
         family_id ?? null,
         category_id ?? null,
-        image_path ?? null,
+        // Chaîne vide = retirer la photo ; champ absent = ne pas y toucher.
+        String(image_path ?? '').trim() || null,
         req.params.id,
+        image_path !== undefined,
       ]
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'Introuvable' });

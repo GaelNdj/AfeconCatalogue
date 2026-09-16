@@ -43,7 +43,7 @@ export default function AdminMargins() {
 
   async function load() {
     const [f, m, e] = await Promise.all([
-      api.getFamilies(),
+      api.getFamilies({ all: true }),
       api.getMarginRules(),
       api.getPriceExceptions(),
     ]);

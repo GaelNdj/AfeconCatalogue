@@ -4,6 +4,7 @@ import { api, formatPrice } from '../../api.js';
 
 const emptyRef = {
   code: '',
+  internal_code: '',
   variant_label: '',
   diameter: '',
   ref_pro: '',
@@ -52,6 +53,7 @@ export default function AdminReferences() {
   function openEdit(r) {
     setForm({
       code: r.code || '',
+      internal_code: r.internal_code || '',
       variant_label: r.variant_label || '',
       diameter: r.diameter || '',
       ref_pro: r.ref_pro || '',
@@ -73,6 +75,7 @@ export default function AdminReferences() {
         form.price_sale_cdf === '' ? null : Number(form.price_sale_cdf);
       const body = {
         code: form.code,
+        internal_code: form.internal_code,
         product_id: selectedId,
         variant_label: form.variant_label.trim() || null,
         diameter: form.diameter || null,
@@ -147,7 +150,8 @@ export default function AdminReferences() {
                 <th className="px-3 py-2">Désignation</th>
                 <th className="px-3 py-2">Dimensions</th>
                 <th className="px-3 py-2">Réf. interne</th>
-                <th className="px-3 py-2">Code</th>
+                <th className="px-3 py-2">Code AFE</th>
+                <th className="px-3 py-2">Code catalogue</th>
                 <th className="px-3 py-2">Prix cat. HT</th>
                 <th className="px-3 py-2">Cond.</th>
                 <th className="px-3 py-2">Stock</th>
@@ -161,7 +165,10 @@ export default function AdminReferences() {
                   <td className="px-3 py-2 font-semibold">{r.variant_label || '—'}</td>
                   <td className="px-3 py-2 font-semibold">{r.diameter || '—'}</td>
                   <td className="px-3 py-2 text-muted">{r.ref_pro || '—'}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
+                  <td className="px-3 py-2 font-mono text-xs font-semibold text-brand">
+                    {r.internal_code || '—'}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs text-muted">{r.code}</td>
                   <td className="px-3 py-2 font-semibold">
                     {formatPrice(r.price_catalog_ht ?? r.price_ht)}
                   </td>
@@ -208,7 +215,8 @@ export default function AdminReferences() {
             </div>
             <div className="grid grid-cols-2 gap-3 px-5 py-4">
               {[
-                ['code', 'Code *'],
+                ['internal_code', 'Code AFE (interne)'],
+                ['code', 'Code catalogue *'],
                 ['variant_label', 'Désignation variante'],
                 ['diameter', 'Dimensions'],
                 ['ref_pro', 'Réf. interne'],

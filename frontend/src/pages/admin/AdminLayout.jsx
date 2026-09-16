@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link } from 'react-router-dom';
-import { Box, GitBranch, Layers, Upload, Percent, Truck, ArrowLeft, LogOut } from 'lucide-react';
+import { Box, GitBranch, Layers, Upload, Percent, Truck, ShoppingBag, ArrowLeft, LogOut } from 'lucide-react';
 import AdminGate from '../../components/AdminGate.jsx';
 import { clearAdminKey } from '../../api.js';
 
@@ -10,6 +10,7 @@ const tabs = [
   { to: '/admin/marges', label: 'Marges', icon: Percent },
   { to: '/admin/livraison', label: 'Livraison', icon: Truck },
   { to: '/admin/import', label: 'Import', icon: Upload },
+  { to: '/admin/commandes', label: 'Commandes', icon: ShoppingBag },
 ];
 
 export default function AdminLayout() {

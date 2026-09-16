@@ -8,11 +8,13 @@ const SENSITIVE_REF_FIELDS = new Set([
   'effective_price_ht',
 ]);
 
+import { publicDisplayCode } from '../pricingPublic.js';
+
 export function toPublicReference(ref) {
   const display = ref.display_price_ht ?? ref.effective_price_ht ?? null;
   return {
     id: ref.id,
-    code: ref.code,
+    code: publicDisplayCode(ref),
     product_id: ref.product_id,
     ref_pro: ref.ref_pro,
     ref_four: ref.ref_four,

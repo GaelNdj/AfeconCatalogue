@@ -27,8 +27,13 @@ from PIL import Image
 PDF_PATH = "/Users/gael/Downloads/cata_pro_2026_idf_368_enrich.pdf"
 CATALOGUE_DIR = "/Users/gael/Desktop/catalogue"
 OUTPUT_PATH = os.path.join(CATALOGUE_DIR, "catalogue_pro_2026_plomberie.xlsx")
+if os.environ.get("EXTRACT_OUTPUT"):
+    OUTPUT_PATH = os.environ["EXTRACT_OUTPUT"]
 IMAGE_DIR = os.path.join(CATALOGUE_DIR, "images_hq")
 IMAGE_REL = "images_hq"
+if os.environ.get("EXTRACT_IMAGE_DIR"):
+    IMAGE_DIR = os.environ["EXTRACT_IMAGE_DIR"]
+    IMAGE_REL = os.path.basename(IMAGE_DIR.rstrip("/"))
 FILTER_FAMILLE = "Plomberie"
 MAX_NAME_LEN = 90
 # Native pixels only — no page render upsample (that zoomed photos ~1.44x).
@@ -48,11 +53,14 @@ COLUMNS = [
     "Variante",
     "Ordre",
     "Code",
+    "Code interne",
     "Famille",
     "Catégorie",
     "Prix HT",
     "Note",
+    "Description",
     "Image",
+    "Image produit",
 ]
 
 SKIP_LINE = (
@@ -73,8 +81,6 @@ SKIP_LINE = (
     "VOS OFFRES",
     "PROMOS CEDEO",
     "- GARANTIE",
-    "◗ BICOLORE",
-    "BICOLORE",
 )
 
 BRANDS = [
@@ -89,7 +95,52 @@ BRANDS = [
     "PRESTO", "DELABIE", "SCHELL", "WATTS", "HONEYWELL", "DANFOSS",
     "CALEFFI", "GIACOMINI", "COMAP", "SOMATHERM",     "NICOLL", "GEBO",
     "NOVIPRO", "KALDEWEI", "SIAMP", "SYNTHÈSE", "TECHNO",
+    "FINIMETAL", "ACOVA", "ZEHNDER", "AYOR", "ALTERNA",
+    "VIRAX", "ROTHENBERGER", "KNIPEX", "GRUNDFOS", "BANIDES",
+    "WILO", "REMS", "SUPER-EGO", "RIDGID",
 ]
+
+SERIES_BRAND = {
+    "BANGA": "Finimetal",
+    "BANGA RACCORDEMENT CENTRAL": "Finimetal",
+    "BANGA CINTRE ÉLECTRIQUE": "Finimetal",
+    "BANGA ÉLECTRIQUE": "Finimetal",
+    "KIT FIXOPLAC": "Ayor",
+}
+
+TABLE_SECTION_NAMES = {
+    "UNI", "BICOLORE", "VERSION DROITE", "VERSION GAUCHE",
+    "PLAN VASQUE", "MEUBLE", "CONSOLE", "ACCESSOIRES",
+}
+TECH_VARIANT_RE = re.compile(
+    r"^A\s+(GLISSEMENT|SERTIR|SERTISSAGE|COMPRESSION|COLLER)\b",
+    re.I,
+)
+
+SLOGAN_FRAGMENTS = (
+    "15 MIN DE VOS CHANTIERS",
+    "3000 EXPERTS",
+    "À VOS CLIENTS",
+    "À VOS CÔTÉS",
+    "UNE AGENCE À MOINS",
+    "UNE AVANCE DE TRÉSORERIE",
+    "TOUJOURS UNE AGENCE",
+    "PROCHE DE MON CHANTIER",
+    "NORMES ÉLECTRIQUES",
+    "ÉLECTRIQUES APPLIQUÉES",
+    "À LA SALLE DE BAIN",
+)
+
+TITLE_STOPWORDS = {
+    "ANS", "ON", "HORS", "LE", "DE", "PRO", "DES", "LES", "UNE", "AUX",
+    "PAR", "SUR", "THE", "VOLUME", "CONSEIL", "CENTRAL", "BLANC", "NOIR",
+    "UNI", "NOUVEAU",
+}
+
+TITLE_CONTINUE_WORDS = {
+    "CENTRAL", "DROITE", "GAUCHE", "ÉLECTRIQUE", "ELECTRIQUE",
+    "SOUFFLANT", "MIXTE", "ASYMÉTRIQUE", "SYMETRIQUE", "SYMÉTRIQUE",
+}
 
 FAMILLE_RULES = [
     (["OUTILLAGE", "EPI", "NOVIPRO", "FRIGORISTE"], "Outillage"),
@@ -97,11 +148,14 @@ FAMILLE_RULES = [
     (
         [
             "CHAUDI", "P.A.C", "PAC ", "AIR/EAU", "AIR/AIR", "RADIATEUR",
+            "SÈCHE-SERVIETTE", "SECHE-SERVIETTE",
             "CLIM", "VENTIL", "CHAUFFE", "FUMIST", "CHAUFF", "GÉNIE CLIM",
             "GENIE CLIM", "PLANCHE", "THERMOSTAT", "POMPE À CHALEUR",
             "POMPES À CHALEUR",
         ],
-        "Génie climatique",
+        # Dans le site, le génie climatique est une sous-famille de Plomberie,
+        # pas une famille à part : sinon MAGNA / À BRIDES sortent de l'Excel.
+        "Plomberie",
     ),
     (
         [
@@ -132,6 +186,11 @@ SIZE_RE = re.compile(
     re.I,
 )
 BULLET_NOTE_RE = re.compile(r"^[●•▪]\s*(.+)$")
+# Triangle catalogue (●/◗) ; fitz le transcrit souvent en « Q ».
+TABLE_BULLET_RE = re.compile(r"^(?:[●•▪◗▸►]\s*|Q\s+)")
+# Les puces du catalogue sont des glyphes ZapfDingbats que fitz rend comme des
+# lettres (« G », « Q »…) : on les repère par la police, pas par le caractère.
+SYMBOL_FONTS = ("ZapfDingbats", "Dingbat", "Wingdings", "Symbol")
 HEADER_ROW_RE = re.compile(
     r"(RéfPro|Réf\.?\s*Four|Prix HT|Vendu par|Désignation|Poids)",
     re.I,
@@ -154,6 +213,12 @@ def sanitize_cell(val):
 def is_category_header(line, current_category=""):
     """Rubriques catalogue (PLOMBERIE, RACCORDS CUIVRE…) ≠ fiches produit."""
     s = clean_spaces(line)
+    if not s or s[:1].islower():
+        return False
+    if is_slogan_line(s):
+        return False
+    if " - " in s:
+        return False
     up = s.upper().rstrip(".")
     if current_category and up == clean_spaces(current_category).upper():
         return True
@@ -201,24 +266,192 @@ def line_column(tp, line, page_w, page_h):
     return "L"
 
 
-def extract_column_lines(fitz_page, page_w):
-    """Lit le texte colonne par colonne (gauche puis droite), ordre vertical."""
+def line_text_with_bullets(spans):
+    """Texte d'une ligne, puces dingbats rétablies en « ● »."""
+    parts = []
+    for span in spans:
+        txt = span.get("text", "")
+        font = span.get("font") or ""
+        if len(txt.strip()) == 1 and any(f in font for f in SYMBOL_FONTS):
+            parts.append("● ")
+        else:
+            parts.append(txt)
+    return clean_spaces("".join(parts))
+
+
+# Le catalogue suit une hiérarchie typographique stricte : le titre d'article est
+# le seul texte en Montserrat-SemiBold 8.11 et la description courte le seul en
+# Montserrat-Light 6.50. Les cellules de tableau sont en 5.50. C'est bien plus
+# fiable que de deviner d'après le contenu : sans ça, la fin d'une description ou
+# d'une cellule qui passe à la ligne finit prise pour un nom d'article.
+TITLE_FONT, TITLE_SIZE = "Montserrat-SemiBold", 8.11
+DESC_FONT, DESC_SIZE = "Montserrat-Light", 6.50
+
+
+def line_role(spans):
+    """« title », « desc », ou "" — d'après la police du premier span visible."""
+    for span in spans:
+        if not (span.get("text") or "").strip():
+            continue
+        font = span.get("font") or ""
+        size = float(span.get("size") or 0)
+        if font == TITLE_FONT and abs(size - TITLE_SIZE) < 0.15:
+            return "title"
+        if font == DESC_FONT and abs(size - DESC_SIZE) < 0.15:
+            return "desc"
+        return ""
+    return ""
+
+
+def extract_column_items(fitz_page, page_w):
+    """Lignes (y, x0, texte, rôle) par colonne, haut → bas. Ignore l'onglet latéral."""
     by_col = {"L": [], "R": []}
     for block in fitz_page.get_text("dict").get("blocks", []):
         if block.get("type") != 0:
             continue
         for line in block.get("lines", []):
-            text = clean_spaces("".join(span.get("text", "") for span in line.get("spans", [])))
+            text = line_text_with_bullets(line.get("spans", []))
             if not text:
                 continue
             bbox = line.get("bbox", (0, 0, 0, 0))
-            cx = (bbox[0] + bbox[2]) / 2
+            x0, y0, x1, _y1 = bbox
+            if float(x0) >= page_w * 0.90:
+                continue
+            cx = (float(x0) + float(x1)) / 2
             col = "L" if cx < page_w / 2 else "R"
-            by_col[col].append((bbox[1], text))
-    return {
-        col: merge_wrapped_lines([t for _, t in sorted(by_col[col], key=lambda x: x[0])])
-        for col in ("L", "R")
-    }
+            by_col[col].append(
+                (float(y0), float(x0), text, line_role(line.get("spans", [])))
+            )
+    for col in by_col:
+        by_col[col].sort(key=lambda x: (x[0], x[1]))
+    return by_col
+
+
+def merge_wrapped_items(items):
+    out = []
+    i = 0
+    n = len(items)
+    while i < n:
+        y, line = items[i]
+        if not CODE_RE.search(line) and i + 1 < n:
+            ny, nxt = items[i + 1]
+            join = False
+            if ny - y < 16 and WRAP_END_RE.search(line):
+                join = True
+            elif ny - y < 14 and re.match(r"^(cm|mm)\b", nxt, re.I) and re.search(r"\d", line):
+                join = True
+            elif (
+                ny - y < 14
+                and looks_like_description_line(line)
+                and looks_like_description_line(nxt)
+            ):
+                join = True
+            if join:
+                combined = clean_spaces(line + " " + nxt)
+                i += 1
+                if not CODE_RE.search(combined) and i + 1 < n and CODE_RE.search(items[i + 1][1]):
+                    combined = clean_spaces(combined + " " + items[i + 1][1])
+                    i += 1
+                out.append((y, combined))
+                i += 1
+                continue
+        out.append((y, line))
+        i += 1
+    return out
+
+
+def strip_table_bullet(line):
+    s = TABLE_BULLET_RE.sub("", clean_spaces(line)).strip()
+    m = re.match(r"^([A-Z])\s+(.+)$", s)
+    if m and (
+        m.group(2).upper() in TABLE_SECTION_NAMES or TECH_VARIANT_RE.match(m.group(2))
+    ):
+        return m.group(2).strip()
+    return s
+
+
+def is_table_section_header(line):
+    """Sous-rubrique de tableau (A GLISSEMENT, BAIN/DOUCHE…) ≠ nom d'article."""
+    s = clean_spaces(line)
+    if not s or CODE_RE.search(s) or PRICE_RE.search(s) or HEADER_ROW_RE.search(s):
+        return False
+    rest = strip_table_bullet(s)
+    reason = None
+    if looks_like_row_prefix(s) or looks_like_row_prefix(rest):
+        return False
+    if DIAM_RE.match((rest or "").replace(" ", "")) or DIAM_RE.match(s.replace(" ", "")):
+        return False
+    if TABLE_BULLET_RE.match(s) or rest != s:
+        if re.fullmatch(r"[A-Da-d]", rest or ""):
+            return False
+        if rest.upper() in TABLE_SECTION_NAMES or TECH_VARIANT_RE.match(rest):
+            reason = "bullet_named_or_tech"
+        elif TABLE_BULLET_RE.match(s) and 3 <= len(rest) <= 90:
+            reason = "bullet_any_rest"
+        if reason:
+            return True
+    if TECH_VARIANT_RE.match(s) or TECH_VARIANT_RE.match(rest):
+        return True
+    if rest.upper() in TABLE_SECTION_NAMES or s.upper() in TABLE_SECTION_NAMES:
+        return True
+    if re.search(r"\s/\s", s) and re.search(
+        r"MODULE|BAIN|DOUCHE|SOUS-ÉVIER|SOUS-EVIER|LAVABO|WC\b", s, re.I
+    ):
+        # Vrais en-têtes de tableau (« BAIN / DOUCHE »), pas un nom de 80 caractères
+        # qui contient un slash et le mot douche (ex. CROMA SELECT / ECOSTAT).
+        if len(s) <= 40:
+            return True
+    return False
+
+
+def apply_table_section(pend, line):
+    label = strip_table_bullet(line) or clean_spaces(line)
+    up = label.upper()
+    if TECH_VARIANT_RE.match(label):
+        pend["variant_sub"] = label
+    elif up in {"UNI", "BICOLORE"} and pend.get("variant_group"):
+        pend["variant_sub"] = label
+    else:
+        pend["variant_group"] = label
+        pend["variant_sub"] = ""
+
+
+def band_end_for(y, seps):
+    """Y du trait vert/rouge qui ferme l'article contenant y."""
+    if y is None or not seps or len(seps) < 2:
+        return None
+    for i in range(len(seps) - 1):
+        if seps[i] - 10 <= y < seps[i + 1]:
+            return seps[i + 1]
+    return seps[-1]
+
+
+def is_layout_chrome(line):
+    s = clean_spaces(line)
+    if not s:
+        return True
+    if re.fullmatch(r"[A-Da-d]", s):
+        return True
+    if s in {"Ø", "(mm)", "mm", "RéfPro", "Code", "Prix HT"}:
+        return True
+    if HEADER_ROW_RE.search(s) and not CODE_RE.search(s):
+        return True
+    return False
+
+
+ROW_PREFIX_RE = re.compile(
+    r"^(?:[a-dA-D●•]\s+)?Ø?\s*\d{1,2}(?:[.,]\d+)?"
+    r"(?:[-/]\d{1,2})?(?:[xX×]\d{1,2}){0,2}(?:-\d{1,2})?"
+    r"(?:\s+\d{3,5})?$"
+)
+
+
+def looks_like_row_prefix(line):
+    """Ligne Ø / réf. pro, avant le code 7 chiffres de la ligne suivante."""
+    s = clean_spaces(line)
+    if not s or CODE_RE.search(s) or PRICE_RE.search(s):
+        return False
+    return bool(ROW_PREFIX_RE.match(s))
 
 
 def new_pending(category="", brand=""):
@@ -227,10 +460,14 @@ def new_pending(category="", brand=""):
         "title": "",
         "brand": brand,
         "note": "",
+        "description": "",
         "vendu": "",
         "image": "",
+        "variant_group": "",
+        "variant_sub": "",
         "_section_letter": "",
         "_pending_letter": "",
+        "_band_end": None,
     }
 
 
@@ -268,45 +505,224 @@ def detect_brand(text):
 
 def infer_famille(category, title):
     blob = f"{category} {title}".upper()
+    # Outillage du plombier : reste dans le catalogue Plomberie, pas une famille à part.
+    if "PLOMBIER" in blob:
+        return "Plomberie"
     for keys, famille in FAMILLE_RULES:
         if any(k in blob for k in keys):
             return famille
     return "Autres"
 
 
-def looks_like_product_title(line):
-    line = clean_spaces(line)
-    line = re.sub(r"^\d{1,4}(?=[A-ZÀ-Ÿ])", "", line).strip()
-    if line.startswith("-") or line.startswith("–") or line.startswith("—"):
+def is_slogan_line(line):
+    up = clean_spaces(line).upper()
+    if not up:
         return False
-    if not (6 <= len(line) <= 120):
+    return any(s in up for s in SLOGAN_FRAGMENTS)
+
+
+def looks_like_description_line(line):
+    s = clean_spaces(line)
+    if not s or len(s) < 12:
         return False
-    if CODE_RE.search(line) or PRICE_RE.search(line):
+    if CODE_RE.search(s) or PRICE_RE.search(s) or HEADER_ROW_RE.search(s):
         return False
-    if HEADER_ROW_RE.search(line) or is_skip_line(line):
+    if is_skip_line(s) or is_warranty_or_meta_line(s) or is_slogan_line(s):
         return False
-    if is_warranty_or_meta_line(line):
+    if is_category_header(s):
         return False
-    if is_category_header(line):
-        return False
-    if is_junk_title(line):
-        return False
-    up = line.upper()
-    if any(k in up for k in ("PRODUITS DISPONIBLES", "6 000", "6000 PRODUITS", "EN AGENCE")):
-        return False
-    letters = [c for c in line if c.isalpha()]
+    letters = [c for c in s if c.isalpha()]
     if not letters:
         return False
-    ok = sum(c.isupper() for c in letters) / len(letters) >= 0.45
-    return ok
+    lower_ratio = sum(c.islower() for c in letters) / len(letters)
+    return lower_ratio > 0.25 or ":" in s
 
 
-def detect_category(page_text, pending=""):
+def _soften_desc_clause(clause):
+    """Légère réécriture d'une phrase du catalogue, sans changer le sens."""
+    c = clean_spaces(clause or "").strip(" -–—.;")
+    if not c:
+        return ""
+    # « Pour la circulation de liquide… » → « Circulation de liquide… »
+    c = re.sub(
+        r"^(?:pour|permet(?:tant)?(?:\s+de)?|destiné[e]?\s+à|sert\s+à)\s+(?:la |le |les |l['’])?",
+        "",
+        c,
+        flags=re.I,
+    )
+    c = re.sub(r"\bafin de\b", "pour", c, flags=re.I)
+    c = re.sub(r"\bselon les besoins de l['’]installation\b", "", c, flags=re.I)
+    c = re.sub(r"\s{2,}", " ", c).strip(" ,;.")
+    inf = {
+        "optimiser": "Optimise",
+        "raccorder": "Raccorde",
+        "assurer": "Assure",
+        "permettre": "Permet",
+        "faciliter": "Facilite",
+        "réduire": "Réduit",
+        "reduire": "Réduit",
+        "adapter": "Adapte",
+    }
+    first = c.split(" ", 1)
+    mapped = inf.get(first[0].casefold())
+    if mapped:
+        c = mapped if len(first) == 1 else mapped + " " + first[1]
+    if c:
+        c = c[0].upper() + c[1:]
+    return c
+
+
+def rewrite_short_description(raw, title=""):
+    """Paragraphe Light du catalogue → description courte, un peu plus concise."""
+    t = clean_spaces(raw or "")
+    t = re.sub(r"[\x00-\x1f]", "", t)
+    # Ligatures PDF coupées par une espace : « aﬁ n », « modiﬁ er ».
+    t = re.sub(r"ﬁ (?=[a-zà-ÿ])", "fi", t)
+    t = re.sub(r"ﬂ (?=[a-zà-ÿ])", "fl", t)
+    t = t.replace("ﬁ", "fi").replace("ﬂ", "fl").replace("œ", "oe")
+    t = re.sub(r"\bfi letage\b", "filetage", t, flags=re.I)
+    t = re.sub(r"\bfl uide\b", "fluide", t, flags=re.I)
+    t = re.sub(r"\s*J\s*[\d,.]+\s*", " ", t)
+    t = re.sub(r"\s+", " ", t).strip(" -–—")
+    if not t:
+        return None
+    t = re.sub(r"^Raccordements\s*:\s*", "Raccordement : ", t, flags=re.I)
+    t = re.sub(
+        r"\s*[-–—]\s*Pression de service\s*:\s*",
+        ". Pression de service : ",
+        t,
+        flags=re.I,
+    )
+    # Ne pas recopier le titre : ça remplaçait la vraie description.
+    title_cmp = clean_spaces(title or "").casefold()
+    if title_cmp and t.casefold() == title_cmp:
+        return None
+    parts = [
+        p.strip(" -–—.;:")
+        for p in re.split(r"\s+[-–—]\s+|(?<=[.;])\s+|:\s+", t)
+        if p.strip(" -–—.;:")
+    ]
+    clauses = []
+    for p in parts:
+        softened = _soften_desc_clause(p)
+        if not softened:
+            continue
+        if title_cmp and softened.casefold() == title_cmp:
+            continue
+        if any(softened.casefold() == c.casefold() for c in clauses):
+            continue
+        clauses.append(softened)
+    if not clauses:
+        return None
+    # Deux clauses max : assez pour le rôle, sans coller tout le paragraphe.
+    kept = clauses[:2]
+    out = ". ".join(c.rstrip(".") for c in kept).rstrip(".") + "."
+    out = re.sub(r"\s+", " ", out).strip()
+    if len(out) > 180:
+        out = out[:177].rsplit(" ", 1)[0].rstrip(".,;") + "."
+    return out or None
+
+
+def detect_series_brand(title):
+    up = clean_spaces(title).upper()
+    if up in SERIES_BRAND:
+        return SERIES_BRAND[up]
+    for key, brand in SERIES_BRAND.items():
+        if up.startswith(key):
+            return brand
+    return ""
+
+
+def looks_like_product_title(line):
+    raw = clean_spaces(line)
+    line = re.sub(r"^\d{1,4}(?=[A-ZÀ-Ÿ])", "", raw).strip()
+    reject = None
+    if is_slogan_line(line):
+        reject = "slogan"
+    elif is_table_section_header(line):
+        reject = "table_section"
+    elif line.upper() in TITLE_STOPWORDS:
+        reject = "stopword"
+    elif line.startswith("-") or line.startswith("–") or line.startswith("—"):
+        reject = "dash"
+    elif CODE_RE.search(line) or PRICE_RE.search(line):
+        reject = "code_or_price"
+    elif HEADER_ROW_RE.search(line) or is_skip_line(line):
+        reject = "skip_or_header"
+    elif is_warranty_or_meta_line(line):
+        reject = "warranty"
+    elif is_category_header(line):
+        reject = "category"
+    elif is_junk_title(line):
+        reject = "junk"
+    else:
+        up = line.upper()
+        if any(k in up for k in ("PRODUITS DISPONIBLES", "6 000", "6000 PRODUITS", "EN AGENCE")):
+            reject = "promo"
+        else:
+            letters = [c for c in line if c.isalpha()]
+            if not letters:
+                reject = "no_letters"
+            else:
+                upper_ratio = sum(c.isupper() for c in letters) / len(letters)
+                short_name = (
+                    3 <= len(line) <= 5
+                    and line.isupper()
+                    and len(letters) >= 3
+                    and not any(c.isdigit() for c in line)
+                )
+                if short_name:
+                    reject = None
+                elif not (6 <= len(line) <= 120):
+                    reject = f"len:{len(line)}"
+                elif upper_ratio < 0.45:
+                    reject = "lowercase"
+    if reject:
+        return False
+    return True
+
+
+def non_category_texts(fitz_page):
+    """Textes à ne pas confondre avec une rubrique.
+
+    Renvoie (titres, marge) : les titres produit repérés à la typographie, et
+    les onglets pivotés de la marge, que pdfium recolle parfois en une seule
+    ligne (« EQUIPEMENT DE CHAUFFAGE GÉNIE CLIMATIQUE »).
+    """
+    titles, margin = set(), set()
+    for block in fitz_page.get_text("dict").get("blocks") or []:
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines") or []:
+            spans = line.get("spans", [])
+            text = clean_spaces("".join(s.get("text") or "" for s in spans))
+            if not text:
+                continue
+            if tuple(line.get("dir") or (1, 0)) != (1.0, 0.0):
+                margin.add(text.upper())
+            elif line_role(spans) == "title":
+                titles.add(text.upper())
+    return titles, margin
+
+
+def is_non_category(line, titles=(), margin=()):
+    """Vrai si la ligne est un titre produit ou reprend un onglet de marge."""
+    up = clean_spaces(line).upper()
+    if up in titles:
+        return True
+    return any(tab in up for tab in margin)
+
+
+def detect_category(page_text, pending="", titles=(), margin=()):
     lines = [clean_spaces(x) for x in page_text.splitlines() if clean_spaces(x)]
     for line in lines[:6]:
-        if is_skip_line(line) or CODE_RE.search(line):
+        if is_skip_line(line) or CODE_RE.search(line) or is_slogan_line(line):
+            continue
+        if line[:1].islower() or " - " in line:
             continue
         line2 = re.sub(r"^\d{1,4}(?=[A-ZÀ-Ÿ ])", "", line).strip()
+        if is_non_category(line2, titles, margin):
+            continue
         if 4 <= len(line2) <= 28 and line2.isupper() and "Ø" not in line2:
             if any(
                 k in line2
@@ -315,10 +731,18 @@ def detect_category(page_text, pending=""):
                 return line2
     candidates = []
     for line in lines[:12]:
-        if is_skip_line(line) or CODE_RE.search(line):
+        if is_skip_line(line) or CODE_RE.search(line) or is_slogan_line(line):
+            continue
+        if line[:1].islower() or " - " in line:
+            continue
+        # Une rubrique n'est pas une phrase : sans ce garde-fou la description
+        # courte d'un produit finit en catégorie.
+        if looks_like_description_line(line):
             continue
         line2 = re.sub(r"^\d{1,4}(?=[A-ZÀ-Ÿ ])", "", line).strip()
         up = line2.upper()
+        if is_non_category(line2, titles, margin):
+            continue
         if any(
             k in up
             for k in (
@@ -348,6 +772,8 @@ def merge_wrapped_lines(lines):
             nxt = lines[i + 1]
             join = False
             if WRAP_END_RE.search(line):
+                join = True
+            elif looks_like_row_prefix(line) and CODE_RE.search(nxt):
                 join = True
             elif re.match(r"^(cm|mm)\b", nxt, re.I) and re.search(r"\d", line):
                 join = True
@@ -487,8 +913,14 @@ DIM_LINE_RE = re.compile(
 
 def is_title_continuation(line):
     s = clean_spaces(line)
-    if not s or CODE_RE.search(s) or PRICE_RE.search(s):
+    if not s or CODE_RE.search(s) or PRICE_RE.search(s) or is_slogan_line(s):
         return False
+    if looks_like_description_line(s):
+        return False
+    if re.search(r"pression|raccordement|filetage|temp[eé]rature|garantie", s, re.I):
+        return False
+    if s.upper() in TITLE_CONTINUE_WORDS:
+        return True
     if len(s) > 48:
         return False
     letters = [c for c in s if c.isalpha()]
@@ -513,6 +945,10 @@ def is_junk_title(line):
     s = clean_spaces(line)
     if not s:
         return True
+    if is_slogan_line(s):
+        return True
+    if re.fullmatch(r"\d+\s*(MM|CM)", s, re.I):
+        return True
     if s.startswith(":") or s.startswith("–") or s.startswith("—"):
         return True
     if re.match(r"^[●•▪]", s):
@@ -532,7 +968,7 @@ def is_junk_title(line):
     if re.fullmatch(r"GARANTIE\.?", s, re.I):
         return True
     letters = [c for c in s if c.isalpha()]
-    if len(letters) < 5:
+    if len(letters) < 3:
         return True
     return False
 
@@ -598,28 +1034,6 @@ def extract_page_text(page):
     return tp.get_text_bounded() if tp else ""
 
 
-def debug_log(hypothesis_id, location, message, data, run_id="extract"):
-    # #region agent log
-    try:
-        import json
-        import time
-
-        payload = {
-            "sessionId": "913862",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-            "runId": run_id,
-        }
-        with open(DEBUG_LOG, "a") as f:
-            f.write(json.dumps(payload) + "\n")
-    except Exception:
-        pass
-    # #endregion
-
-
 def find_variant_letter(fitz_page, code, page_h):
     """Repère le marqueur A/B/C à gauche d'une ligne de code dans le PDF."""
     code_bbox = None
@@ -667,8 +1081,8 @@ def collect_block_photo_row(photos, y0, y1, col_left, page_w, sku_y_min):
         for p in photos
         if (p["x"] < page_w / 2) == col_left and (y0 - 12) <= p["y"] < (y1 - 6)
     ]
-    if not col_photos:
-        col_photos = [p for p in photos if (p["x"] < page_w / 2) == col_left]
+    # Pas de repli sur toute la colonne : cela volait les photos de l'article
+    # suivant. Mieux vaut aucune photo qu'une photo d'un autre produit.
     if sku_y_min is not None:
         above = [p for p in col_photos if p["y"] < sku_y_min - 8]
         if above:
@@ -676,11 +1090,21 @@ def collect_block_photo_row(photos, y0, y1, col_left, page_w, sku_y_min):
     if not col_photos:
         return []
 
-    top_y = min(p["y"] for p in col_photos)
-    band = [p for p in col_photos if p["y"] <= top_y + 30]
+    # Les photos d'une même rangée sont alignées par le bas, sur la ligne des
+    # étiquettes A/B/C : une pièce plate a le même bas mais un haut bien plus
+    # bas qu'une pièce haute. Regrouper par le haut la laissait de côté. On
+    # garde la rangée la plus fournie : un petit visuel isolé (flash
+    # « NOUVEAU ») ne doit pas servir de référence.
+    by_base = []
+    for photo in sorted(col_photos, key=lambda p: p["y1"]):
+        if by_base and abs(photo["y1"] - by_base[-1][0]["y1"]) <= 14:
+            by_base[-1].append(photo)
+        else:
+            by_base.append([photo])
+    band = max(by_base, key=lambda r: (len(r), r[0]["y1"]))
     band.sort(key=lambda p: p["x"])
-    if len(band) < 2:
-        return []
+    if len(band) == 1:
+        return band
 
     runs = [[band[0]]]
     for photo in band[1:]:
@@ -689,9 +1113,7 @@ def collect_block_photo_row(photos, y0, y1, col_left, page_w, sku_y_min):
             runs[-1].append(photo)
         else:
             runs.append([photo])
-    best = max(runs, key=lambda r: (len(r), -r[0]["y"]))
-    if len(best) < 2:
-        return []
+    best = max(runs, key=lambda r: (len(r), -r[0]["y1"]))
     return best
 
 
@@ -710,17 +1132,22 @@ def assign_block_photos(items, photos, fitz_page, tp, ph, pw, left_ys, right_ys)
 
     groups = defaultdict(list)
     for item in items:
+        art_y = item.get("_art_y0")
+        art_col = item.get("_art_col")
         ty, tx = find_title_y(tp, (item.get("Désignation") or "")[:28], ph)
-        col = 0 if (tx or 0) < pw / 2 else 1
-        groups[(item.get("Désignation"), col)].append((item, ty, tx))
+        if art_col is None:
+            art_col = 0 if (tx or 0) < pw / 2 else 1
+        if art_y is None:
+            art_y = ty
+        # Un même titre (« COUPE-TUBE MÉTAL ») peut apparaître 4 fois sur la page :
+        # on groupe par bloc (colonne + Y du titre), pas par nom.
+        groups[(round(float(art_y or 0), 0), int(art_col))].append((item, ty, tx))
 
-    watch_codes = {"1592784", "4008809", "6300517", "6300522"}
-
-    for (_designation, col), rows in groups.items():
+    for (_art_y, col), rows in groups.items():
         if not rows:
             continue
-        tx = rows[0][2] or (0 if col == 0 else pw * 0.75)
-        col_left = tx < pw / 2
+        tx = 40.0 if int(col) == 0 else pw * 0.75
+        col_left = int(col) == 0
         code_ys = []
         for item, _ty, _tx in rows:
             cy, _ = find_title_y(tp, item["Code"], ph)
@@ -736,34 +1163,27 @@ def assign_block_photos(items, photos, fitz_page, tp, ph, pw, left_ys, right_ys)
             y1 = min(ph, max(code_ys) + 50)
 
         block_photos = collect_block_photo_row(photos, y0, y1, col_left, pw, sku_y_min)
+        hero = block_photos[0]["file"] if block_photos else ""
         if len(block_photos) < 2:
             for item, _ty, _tx in rows:
-                fname = pick_photo_in_block(photos, y0, y1, tx, sku_y_min, pw)
+                fname = hero or pick_photo_in_block(photos, y0, y1, tx, sku_y_min, pw)
                 if fname:
                     item["Image"] = f"{IMAGE_REL}/{fname}"
+                item["_hero"] = fname or item.get("_hero") or ""
             continue
 
         for item, _ty, _tx in rows:
             letter = item.get("_photo_letter") or find_variant_letter(fitz_page, item["Code"], ph)
             idx = photo_letter_index(letter)
             if idx is None or idx >= len(block_photos):
-                fname = pick_photo_in_block(photos, y0, y1, tx, sku_y_min, pw)
-                if fname:
-                    item["Image"] = f"{IMAGE_REL}/{fname}"
+                # Sans lettre A/B/C : photo principale du bloc (A), jamais la
+                # molette / accessoire collé au tableau.
+                fname = block_photos[0]["file"]
+                item["Image"] = f"{IMAGE_REL}/{fname}"
+                item["_hero"] = hero
                 continue
             item["Image"] = f"{IMAGE_REL}/{block_photos[idx]['file']}"
-            if item["Code"] in watch_codes:
-                debug_log(
-                    "H1,H3,H5",
-                    "extract_catalog_hq.py:assign_block_photos",
-                    "multi-photo assigned",
-                    {
-                        "code": item["Code"],
-                        "letter": letter,
-                        "image": item["Image"],
-                        "block_photos": [p["file"] for p in block_photos],
-                    },
-                )
+            item["_hero"] = hero
 
 
 def pad_white(pil, frac=PAD_FRAC):
@@ -826,9 +1246,35 @@ def save_hq_image(pil, dest):
     pil.save(dest, "PNG", optimize=True)
 
 
+def looks_like_logo_photo(dw, dh, px_w, px_h):
+    """Logos / bandeaux marque : très larges et bas, pas une photo de pièce."""
+    if dh <= 0:
+        return True
+    aspect = dw / dh
+    px_aspect = max(px_w, px_h) / max(1, min(px_w, px_h))
+    if aspect >= 2.4 and dh < 26:
+        return True
+    # Wordmark de marque (Virax, Rothenberger, Knipex…) : plus étroit qu'une pièce.
+    if dw < 50 and dh < 24 and aspect >= 1.7:
+        return True
+    if px_aspect >= 3.0 and min(px_w, px_h) < 80:
+        return True
+    if dh < 14:
+        return True
+    return False
+
+
 def extract_product_photos(page, page_idx, image_dir, hash_to_name, skip_stats):
     """Extrait les photos natives des pièces (pas de rendu ×3, pas de personnes)."""
     pw, ph = page.get_size()
+    # get_size() donne la CropBox, mais get_bounds() renvoie des coordonnées
+    # MediaBox brutes. fitz, lui, place l'origine du texte sur la CropBox. Sans
+    # cette conversion les photos sont décalées de la marge (~30 pt) par rapport
+    # au texte, et se retrouvent rattachées à l'article voisin.
+    try:
+        crop_x0, _cy0, _cx1, crop_y1 = page.get_cropbox()
+    except Exception:
+        crop_x0, crop_y1 = 0.0, ph
     photos = []
     img_i = 0
 
@@ -845,11 +1291,13 @@ def extract_product_photos(page, page_idx, image_dir, hash_to_name, skip_stats):
         if min(px_w, px_h) < 48 or max(px_w, px_h) < 90:
             if max(px_w, px_h) < 70 and max(dw, dh) < 40:
                 continue
+        if looks_like_logo_photo(dw, dh, px_w, px_h):
+            continue
         aspect = max(px_w, px_h) / max(1, min(px_w, px_h))
         max_aspect = 5.2 if max(px_w, px_h) >= 100 else 3.2
         if aspect > max_aspect:
             continue
-        y_top = ph - max(y0, y1)
+        y_top = crop_y1 - max(y0, y1)
         if y_top < ph * 0.04 or y_top > ph * 0.92:
             continue
 
@@ -882,15 +1330,32 @@ def extract_product_photos(page, page_idx, image_dir, hash_to_name, skip_stats):
 
         photos.append(
             {
-                "x": (x0 + x1) / 2,
+                "x": (x0 + x1) / 2 - crop_x0,
                 "y": y_top,
                 "y1": y_top + abs(y1 - y0),
+                "w": abs(x1 - x0),
+                "h": abs(y1 - y0),
                 "file": fname,
             }
         )
 
     photos.sort(key=lambda p: (p["x"] > pw / 2, p["y"]))
     return photos
+
+
+def find_text_pos_fitz(fitz_page, needle):
+    """Position (y, x) d'un texte dans le PDF (origine haut, comme les traits verts)."""
+    if not needle or not fitz_page:
+        return None, None
+    for block in fitz_page.get_text("dict").get("blocks", []):
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines", []):
+            text = "".join(span.get("text", "") for span in line.get("spans", []))
+            if needle in text:
+                bbox = line.get("bbox", (0, 0, 0, 0))
+                return float(bbox[1]), float(bbox[0])
+    return None, None
 
 
 def find_title_y(tp, title, page_h):
@@ -998,8 +1463,199 @@ def pick_photo_in_block(photos, y0, y1, title_x, sku_y, page_w):
     if sku_y is not None:
         above = [p for p in cand if p["y"] <= sku_y + 8]
         pool = above or cand
-        return min(pool, key=lambda p: abs(p.get("y1", p["y"]) - sku_y))["file"]
-    return max(cand, key=lambda p: p["x"])["file"]
+        # Plus grande photo du bloc (pièce), pas celle collée au tableau
+        # (molette, joint, pictogramme).
+        return max(
+            pool,
+            key=lambda p: (
+                (p.get("w") or 40) * (p.get("h") or 40),
+                -(p.get("y") or 0),
+            ),
+        )["file"]
+    return max(cand, key=lambda p: (p.get("w") or 0) * (p.get("h") or 0))["file"]
+
+
+def looks_like_running_header(text, y):
+    """Bandeau de page (LAVE-MAINS en haut) ≠ nom d'article au-dessus de la photo."""
+    if y is None or y > 30:
+        return False
+    s = clean_spaces(text)
+    if not s:
+        return True
+    if is_category_header(s):
+        return True
+    up = s.upper()
+    if up in {"LAVE-MAINS", "SANITAIRE", "PLOMBERIE", "COIN TOILETTES", "ACCESSIBILITÉ", "COLLECTIVITÉ"}:
+        return True
+    if len(s) <= 24 and s.isupper() and not re.search(r"\d", s) and "MEUBLE" not in up:
+        return True
+    return False
+
+
+def column_starts_new_article(items):
+    """False = suite de tableau / description (article de la page précédente)."""
+    for y, _x0, text, role in items:
+        if is_skip_line(text) or is_warranty_or_meta_line(text) or is_slogan_line(text):
+            continue
+        if is_layout_chrome(text) or looks_like_row_prefix(text):
+            continue
+        if looks_like_running_header(text, y):
+            continue
+        if role == "title":
+            return True
+        if CODE_RE.search(text) or PRICE_RE.search(text):
+            return False
+        if is_table_section_header(text):
+            return False
+        if role == "desc":
+            return False
+    return False
+
+
+def collect_page_articles(fitz_page, page_w, page_h, category="", carry=None, page_no=0):
+    """Articles : colonne gauche puis droite. Suite page précédente si pas de nouveau titre."""
+    left_ys, right_ys = article_separator_ys(fitz_page, page_w, page_h)
+    articles = []
+    col_items = extract_column_items(fitz_page, page_w)
+    starts_new = column_starts_new_article(col_items["L"])
+    if carry and not starts_new:
+        carried = dict(carry)
+        carried["col"] = "L"
+        carried["y0"] = 0.0
+        carried["y1"] = band_end_for(0.0, left_ys) or page_h
+        carried["sections"] = []
+        carried["variant_group"] = ""
+        carried["variant_sub"] = ""
+        articles.append(carried)
+    # Y des lignes de tableau (celles portant un code) : leurs autres cellules
+    # (Réf. Four., désignation) ne sont ni des titres ni des descriptions.
+    row_ys = {
+        col: [y for y, _x, t, _r in col_items[col] if CODE_RE.search(t)]
+        for col in ("L", "R")
+    }
+
+    def on_table_row(col, y):
+        return any(abs(y - ry) <= 4 for ry in row_ys[col])
+
+    for col in ("L", "R"):
+        seps = left_ys if col == "L" else right_ys
+        current = None
+        if col == "L" and articles and carry and articles[0].get("y0") == 0.0:
+            current = articles[0]
+        for y, x0, text, role in col_items[col]:
+            if is_skip_line(text) or is_warranty_or_meta_line(text) or is_slogan_line(text):
+                continue
+            if is_layout_chrome(text) or looks_like_row_prefix(text):
+                continue
+            if looks_like_running_header(text, y):
+                if not category:
+                    category = clean_spaces(text)
+                continue
+            if current and current.get("y1") is not None and y >= current["y1"] - 4:
+                current = None
+            # La typographie primant sur tout le reste, le titre est traité avant
+            # les tests de contenu : aucun d'eux ne doit pouvoir l'avaler.
+            if role == "title":
+                if (
+                    current
+                    and current.get("_title_y") is not None
+                    and y - current["_title_y"] <= 14
+                ):
+                    # Titre sur deux lignes : elles se suivent à ~10 pt d'écart.
+                    current["title"] = clean_spaces(current["title"] + " " + text)
+                    current["_title_y"] = y
+                    continue
+                title = re.sub(r"^\d{1,4}(?=[A-ZÀ-Ÿ])", "", text).strip()
+                current = {
+                    "title": title,
+                    "description": "",
+                    "brand": detect_series_brand(title) or detect_brand(title) or "",
+                    "category": category,
+                    "y0": y,
+                    "y1": band_end_for(y, seps) or page_h,
+                    "col": col,
+                    "x": x0,
+                    "variant_group": "",
+                    "variant_sub": "",
+                    "sections": [],
+                    "note": "",
+                    "_title_y": y,
+                }
+                articles.append(current)
+                continue
+            if CODE_RE.search(text) or PRICE_RE.search(text):
+                continue
+            if is_category_header(text, category):
+                category = clean_spaces(text)
+                if current:
+                    current["category"] = category
+                continue
+            bm = BULLET_NOTE_RE.match(text)
+            if bm and current and not is_table_section_header(text):
+                note = clean_spaces(bm.group(1))
+                if note and not CODE_RE.search(note):
+                    current["note"] = note.upper()
+                continue
+            if is_table_section_header(text):
+                if current:
+                    apply_table_section(current, text)
+                    current["sections"].append(
+                        {
+                            "y": y,
+                            "group": current.get("variant_group") or "",
+                            "sub": current.get("variant_sub") or "",
+                        }
+                    )
+                continue
+            if on_table_row(col, y):
+                continue
+            if role == "desc":
+                # Le corps 6.50 sert aussi aux intitulés de rubrique sous le titre
+                # (« CHAUFFAGE »). Une vraie description est une phrase.
+                # Exception : dernière ligne tout en chiffres/majuscules
+                # (« 2300 / S 2400 / C 2300 G ») si on a déjà commencé le paragraphe.
+                if re.search(r"\d\s*x\s*\d+\s*V|\d+\s*Hz|1x230", text, re.I):
+                    continue
+                has_lower = any(c.islower() for c in text)
+                if not has_lower and not (current and current.get("description")):
+                    if current and not current.get("category"):
+                        current["category"] = clean_spaces(text)
+                    continue
+                if current:
+                    current["description"] = clean_spaces(
+                        (current.get("description") or "") + " " + text
+                    )
+                continue
+            if current and looks_like_dimension_line(text):
+                current["last_diam"] = clean_spaces(text)
+    next_carry = None
+    right_arts = [a for a in articles if a.get("col") == "R"]
+    candidate = right_arts[-1] if right_arts else (articles[-1] if articles else None)
+    if candidate and (candidate.get("y1") or 0) >= page_h - 8:
+        next_carry = candidate
+    return articles, category, next_carry
+
+
+def find_article_for_code(articles, y, x, page_w):
+    col = "L" if (x or 0) < page_w / 2 else "R"
+    y = y if y is not None else 0
+    hits = [
+        a
+        for a in articles
+        if a.get("col") == col and (a.get("y0") or 0) - 8 <= y < (a.get("y1") or 0) + 6
+    ]
+    if hits:
+        return max(hits, key=lambda a: a.get("y0") or 0)
+    prev = [a for a in articles if a.get("col") == col and (a.get("y0") or 0) <= y + 8]
+    return prev[-1] if prev else None
+
+
+def section_for_article(art, y):
+    if not art:
+        return None
+    y = y if y is not None else 0
+    secs = [s for s in (art.get("sections") or []) if s.get("y", 0) <= y + 4]
+    return secs[-1] if secs else None
 
 
 def process_pdf():
@@ -1014,11 +1670,29 @@ def process_pdf():
     seen = set()
     hash_to_name = {}
     skip_stats = {"people": 0, "kept": 0, "logged": 0, "size_logged": 0}
-    pending = {"category": "", "title": "", "brand": "", "note": "", "vendu": "", "image": ""}
+    pending = {"category": ""}
+    article_carry = None
 
-    pending_by_col = {"L": new_pending(), "R": new_pending()}
+    page_from = int(os.environ.get("EXTRACT_PAGE_FROM") or "1")
+    page_to = int(os.environ.get("EXTRACT_PAGE_TO") or str(len(pdf)))
+    only_pages = set()
+    raw_pages = os.environ.get("EXTRACT_PAGES") or ""
+    if raw_pages.strip():
+        for part in raw_pages.replace(" ", "").split(","):
+            if not part:
+                continue
+            if "-" in part:
+                a, b = part.split("-", 1)
+                only_pages.update(range(int(a), int(b) + 1))
+            else:
+                only_pages.add(int(part))
 
     for idx in range(len(pdf)):
+        page_no = idx + 1
+        if only_pages and page_no not in only_pages:
+            continue
+        if page_no < page_from or page_no > page_to:
+            continue
         page = pdf[idx]
         text = extract_page_text(page)
         if not text.strip():
@@ -1026,97 +1700,89 @@ def process_pdf():
         pw, ph = page.get_size()
         tp = page.get_textpage()
         page_start = len(products)
+        fitz_page = fitz_doc[idx]
+        fw, fh = fitz_page.rect.width, fitz_page.rect.height
 
-        cat = detect_category(text, pending["category"])
+        cat_titles, cat_margin = non_category_texts(fitz_page)
+        cat = detect_category(text, pending["category"], cat_titles, cat_margin)
         if cat:
             pending["category"] = cat
-        page_brand = detect_brand(text)
-        if page_brand:
-            pending["brand"] = page_brand
 
         if os.environ.get("EXTRACT_TEXT_ONLY"):
             photos = []
         else:
             photos = extract_product_photos(page, idx, IMAGE_DIR, hash_to_name, skip_stats)
 
+        articles, pending["category"], article_carry = collect_page_articles(
+            fitz_page, fw, fh, pending["category"], article_carry, page_no
+        )
+        for art in articles:
+            art["image"] = nearest_photo(photos, art.get("y0"), art.get("x"), pw)
+
         raw_lines = [clean_spaces(x) for x in text.splitlines() if clean_spaces(x)]
         lines = merge_wrapped_lines(raw_lines)
+        last_prefix = ""
 
         for line in lines:
-            col = line_column(tp, line, pw, ph)
-            if col not in pending_by_col:
-                pending_by_col[col] = new_pending(pending["category"], pending["brand"])
-            pend = pending_by_col[col]
-            pend["category"] = pending["category"]
-            if pending["brand"]:
-                pend["brand"] = pending["brand"]
-
-            if is_skip_line(line) or is_warranty_or_meta_line(line):
+            if looks_like_row_prefix(line):
+                last_prefix = line
                 continue
-            if is_category_header(line, pend.get("category")):
-                pend["category"] = clean_spaces(line)
-                continue
-            bm = BULLET_NOTE_RE.match(line)
-            if bm:
-                note = clean_spaces(bm.group(1))
-                if note and not CODE_RE.search(note):
-                    pend["note"] = note.upper()
-                continue
-
-            if pend.get("title") and is_title_continuation(line) and not CODE_RE.search(line):
-                pend["title"] = clean_spaces(pend["title"] + " " + line)
-                continue
-
-            section_match = SECTION_PHOTO_RE.match(line)
-            if section_match:
-                kind = section_match.group(1).upper()
-                pend["_section_letter"] = "A" if "DROITE" in kind else "B"
-                continue
-
-            letter_match = LETTER_PREFIX_RE.match(line)
-            if letter_match and not CODE_RE.search(line):
-                pend["_pending_letter"] = letter_match.group(1).upper()
-                continue
-
-            long_skip = len(line) > 90 and line.count(" ") > 10
-            if (
-                looks_like_product_title(line)
-                and not is_category_header(line, pend["category"])
-                and not long_skip
-                and not is_title_continuation(line)
-            ):
-                title = re.sub(r"^\d{1,4}(?=[A-ZÀ-Ÿ])", "", line).strip()
-                pend["title"] = title
-                pend["note"] = ""
-                pend["vendu"] = ""
-                pend["_section_letter"] = ""
-                pend["_pending_letter"] = ""
-                b = detect_brand(line)
-                if b:
-                    pend["brand"] = b
-                ty, tx = find_title_y(tp, title, ph)
-                pend["image"] = nearest_photo(photos, ty, tx, pw)
-                continue
-
-            parsed = parse_product_row(line, pend["vendu"])
+            parsed = parse_product_row(line, "")
             if not parsed:
                 continue
             code = parsed["Code"]
             if code in seen:
                 continue
+
+            cy, cx = find_text_pos_fitz(fitz_page, code)
+            if cy is None or cx is None:
+                if len(articles) == 1:
+                    art = articles[0]
+                    cy = articles[0].get("y0")
+                    cx = articles[0].get("x")
+                else:
+                    continue
+            else:
+                art = find_article_for_code(articles, cy, cx, fw)
+            if not art or not art.get("title") or is_slogan_line(art.get("title") or ""):
+                continue
             seen.add(code)
 
-            title = pend["title"]
-            category = pend["category"]
+            title = art["title"]
+            category = art.get("category") or pending.get("category") or ""
             extra = parsed.get("extra") or ""
             product_name = clean_product_title(title or category)
+            short_desc = rewrite_short_description(
+                art.get("description") or "", product_name
+            )
             diam = parsed.get("Diamètre") or ""
+            prefix_src = last_prefix
+            last_prefix = ""
+            for src in (extra, prefix_src, line):
+                if not src:
+                    continue
+                tok = src.split()[0]
+                compact = tok.replace(" ", "")
+                if DIAM_RE.match(compact) or DIAM_RE.match(tok):
+                    diam = compact.replace("×", "X").replace("x", "X")
+                    break
             if extra and (
                 re.search(r"Ø|L\.\s*\d", extra, re.I)
                 or DIM_LINE_RE.match(extra.replace(" ", ""))
+                or DIAM_RE.match(extra.replace(" ", ""))
             ):
-                diam = diam or extra
-            variant_label = extra or diam
+                diam = diam or extra.replace("×", "X").replace("x", "X")
+            section = section_for_article(art, cy)
+            variant_parts = []
+            if section:
+                variant_parts = [p for p in (section.get("group"), section.get("sub")) if p]
+            elif art.get("variant_group") or art.get("variant_sub"):
+                variant_parts = [
+                    p for p in (art.get("variant_group"), art.get("variant_sub")) if p
+                ]
+            variant_label = " · ".join(variant_parts)
+            if not variant_label:
+                variant_label = extra or diam
             variant_label = re.sub(r"\s+\d+,\d{2}(\s+\d{5,})+.*$", "", variant_label or "").strip()
             variant_label = re.sub(r"\s+\d{6,}.*$", "", variant_label).strip()
             if re.search(r"circuit", extra or "", re.I):
@@ -1124,29 +1790,25 @@ def process_pdf():
             _peeled, diam_from_title, tech_note = peel_technical(title or category)
             if diam_from_title and not diam:
                 diam = diam_from_title
-            note = clean_spaces(" · ".join(x for x in (pend["note"], tech_note) if x))
+            note = clean_spaces(" · ".join(x for x in (art.get("note"), tech_note) if x))
             designation = product_name or build_designation(category, title, "")
-            brand = pend["brand"]
+            brand = detect_series_brand(designation) or art.get("brand") or ""
             if not brand and any(
                 k in (title or "").upper()
                 for k in ("COUDE", "COURBE", "RACCORD", "MANCHON", "MAMELON", "TÉ")
             ):
                 brand = "Altech"
             if any(k in (category or "").upper() for k in ("RACCORDS CUIVRE", "RACCORDS LAITON")):
-                if brand.upper() in ("CUPROLIFE", "STARFIX", "WICU", "SANCO", "WIELAND", "ALTECH"):
+                if (brand or "").upper() in ("CUPROLIFE", "STARFIX", "WICU", "SANCO", "WIELAND", "ALTECH"):
                     if not any(
                         k in (title or "").upper()
                         for k in ("STARFIX", "CUPROLIFE", "WICU", "SANCO")
                     ):
                         brand = "Altech"
 
-            img = pend["image"]
+            img = art.get("image") or ""
             img_path = f"{IMAGE_REL}/{img}" if img else ""
-            photo_letter = (
-                parsed.get("letter")
-                or pend.pop("_pending_letter", "")
-                or pend.get("_section_letter", "")
-            )
+            photo_letter = parsed.get("letter") or ""
 
             products.append(
                 {
@@ -1159,12 +1821,18 @@ def process_pdf():
                     "Variante": variant_label,
                     "Ordre": len(products) + 1,
                     "Code": code,
+                    "Code interne": None,
                     "Famille": infer_famille(category, title),
                     "Catégorie": category,
                     "Prix HT": parsed["Prix HT"],
                     "Note": note,
+                    "Description": short_desc,
                     "Image": img_path,
+                    "Image produit": img_path,
                     "_photo_letter": photo_letter,
+                    "_page": page_no,
+                    "_art_y0": art.get("y0"),
+                    "_art_col": 0 if art.get("col") == "L" else 1,
                 }
             )
 
@@ -1172,14 +1840,21 @@ def process_pdf():
         title_pts = []
         seen_ty = set()
         for item in products[page_start:]:
-            ty, tx = find_title_y(tp, (item.get("Désignation") or "")[:28], ph)
+            ty = item.get("_art_y0")
+            col = item.get("_art_col")
+            tx = None
+            if ty is None or col is None:
+                ty, tx = find_title_y(tp, (item.get("Désignation") or "")[:28], ph)
+                col = 0 if (tx or 0) < pw / 2 else 1
+            else:
+                tx = 40.0 if int(col) == 0 else pw * 0.75
             if ty is None:
                 continue
-            key = (round(ty, 0), 0 if (tx or 0) < pw / 2 else 1)
+            key = (round(float(ty), 0), int(col))
             if key in seen_ty:
                 continue
             seen_ty.add(key)
-            title_pts.append((ty, tx or 0))
+            title_pts.append((float(ty), float(tx or 0)))
         for ty, tx in title_pts:
             if tx < pw / 2:
                 left_ys.append(ty)
@@ -1198,6 +1873,12 @@ def process_pdf():
             left_ys,
             right_ys,
         )
+        for item in products[page_start:]:
+            hero = item.get("_hero") or ""
+            if hero:
+                item["Image produit"] = f"{IMAGE_REL}/{hero}"
+            elif item.get("Image"):
+                item["Image produit"] = item["Image"]
 
         if (idx + 1) % 25 == 0:
             print(
@@ -1207,7 +1888,7 @@ def process_pdf():
             )
 
     fitz_doc.close()
-    if FILTER_FAMILLE:
+    if FILTER_FAMILLE and not os.environ.get("EXTRACT_NO_FAMILY_FILTER"):
         products = [p for p in products if (p.get("Famille") or "") == FILTER_FAMILLE]
         print(f"Filtre famille {FILTER_FAMILLE} -> {len(products)} lignes", flush=True)
     print(
@@ -1215,7 +1896,111 @@ def process_pdf():
         f"{len(hash_to_name)} images pièces, {skip_stats['people']} photos personnes ignorées",
         flush=True,
     )
+    verify_extracted_products(products)
     return products
+
+
+GOLDEN_SKU_CHECKS = [
+    {
+        "code": "7782955",
+        "name_contains": "FIXOPLAC",
+        "name_forbids": ["GLISSEMENT", "SERTIR"],
+        "desc_contains": ["plaque", "vis"],
+        "variant_contains": "GLISSEMENT",
+        "brand": "Ayor",
+    },
+    {
+        "code": "7782956",
+        "name_contains": "FIXOPLAC",
+        "name_forbids": ["GLISSEMENT"],
+        "variant_contains": "SERTIR",
+    },
+    {
+        "code": "7782959",
+        "name_contains": "FIXOPLAC",
+        "variant_contains": "SOUS",
+    },
+    {
+        "code": "4841911",
+        "name_contains": "SMART U",
+        "name_forbids": ["FIXOPLAC"],
+        "variant_contains": "GLISSEMENT",
+    },
+    {
+        "code": "6301286",
+        "name_contains": "STARFIX",
+        "name_forbids": ["FIXOPLAC", "MONOTROU"],
+    },
+    {
+        "code": "4011055",
+        "name_contains": "PLENITUDE",
+        "name_forbids": ["UNI"],
+        "variant_contains": "UNI",
+    },
+]
+
+
+def verify_extracted_products(products):
+    """Contrôles : titre d'article ≠ sous-rubrique de tableau, SKU témoins du PDF."""
+    by_code = {str(p.get("Code") or ""): p for p in products}
+    errors = []
+    warnings = []
+
+    for spec in GOLDEN_SKU_CHECKS:
+        code = spec["code"]
+        row = by_code.get(code)
+        if not row:
+            warnings.append(f"{code}: absent de l'extraction (hors pages / hors famille)")
+            continue
+        name = (row.get("Désignation") or "").upper()
+        desc = (row.get("Description") or "").lower()
+        variant = (row.get("Variante") or "").upper()
+        brand = row.get("Marque") or ""
+        if spec.get("name_contains") and spec["name_contains"].upper() not in name:
+            errors.append(
+                f"{code}: nom {row.get('Désignation')!r} sans {spec['name_contains']}"
+            )
+        for forbid in spec.get("name_forbids") or []:
+            if forbid.upper() in name:
+                errors.append(f"{code}: nom {row.get('Désignation')!r} contient {forbid}")
+        for needle in spec.get("desc_contains") or []:
+            if needle.lower() not in desc:
+                errors.append(f"{code}: description sans {needle!r} ({row.get('Description')!r})")
+        if spec.get("variant_contains") and spec["variant_contains"].upper() not in variant:
+            errors.append(
+                f"{code}: variante {row.get('Variante')!r} sans {spec['variant_contains']}"
+            )
+        if spec.get("brand") and spec["brand"].lower() not in brand.lower():
+            errors.append(f"{code}: marque {brand!r} ≠ {spec['brand']}")
+
+    suspect = []
+    hard = []
+    for p in products:
+        name = (p.get("Désignation") or "").strip()
+        if TECH_VARIANT_RE.match(name) or name.upper() in {"UNI", "BICOLORE"}:
+            hard.append(f"{p.get('Code')} {name!r}")
+        elif is_table_section_header(name):
+            suspect.append(f"{p.get('Code')} {name!r}")
+    if suspect:
+        warnings.append(
+            f"{len(suspect)} titres encore type tableau (ex. {', '.join(suspect[:8])})"
+        )
+    if len(hard) >= 12:
+        warnings.append(f"{len(hard)} titres UNI/variante technique (ex. {', '.join(hard[:8])})")
+        errors.append(
+            f"Trop de titres-tableau restants ({len(hard)}). Relire les traits verts / colonnes."
+        )
+
+    for msg in warnings:
+        print(f"Vérif warning: {msg}")
+    for msg in errors:
+        print(f"Vérif ERREUR: {msg}")
+    if errors and not os.environ.get("EXTRACT_SKIP_VERIFY"):
+        raise SystemExit(f"Extraction rejetée: {len(errors)} contrôle(s) en échec")
+    print(
+        f"Vérif OK: {len(GOLDEN_SKU_CHECKS)} SKU témoins, "
+        f"{len(warnings)} warning(s), {len(products)} lignes"
+    )
 
 
 def write_excel(products):
@@ -1242,26 +2027,71 @@ def write_excel(products):
         for c, name in enumerate(COLUMNS, 1):
             cell = ws.cell(r, c, sanitize_cell(p.get(name, "")))
             cell.alignment = Alignment(
-                vertical="center", wrap_text=name in ("Désignation", "Variante", "Note")
+                vertical="center", wrap_text=name in ("Désignation", "Variante", "Note", "Description")
             )
     widths = {
         "A": 12, "B": 16, "C": 16, "D": 12, "E": 18, "F": 42,
-        "G": 22, "H": 8, "I": 12, "J": 20, "K": 28, "L": 12, "M": 26, "N": 36,
+        "G": 22, "H": 8, "I": 12, "J": 14, "K": 20, "L": 28, "M": 12, "N": 26, "O": 42, "P": 36,
     }
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:N{max(1, len(products) + 1)}"
+    ws.auto_filter.ref = f"A1:Q{max(1, len(products) + 1)}"
     wb.save(OUTPUT_PATH)
 
 
+def patch_existing_xlsx(products, xlsx_path):
+    """Met à jour Désignation / Marque / Catégorie / Description des lignes déjà présentes."""
+    by_code = {}
+    for p in products:
+        code = str(p.get("Code") or "").strip()
+        if code:
+            by_code[code] = p
+    wb = openpyxl.load_workbook(xlsx_path)
+    ws = wb.active
+    headers = [c.value for c in ws[1]]
+    if "Description" not in headers:
+        note_idx = headers.index("Note") + 1 if "Note" in headers else len(headers)
+        ws.insert_cols(note_idx + 1)
+        ws.cell(1, note_idx + 1, "Description")
+        headers = [c.value for c in ws[1]]
+    col = {name: i + 1 for i, name in enumerate(headers) if name}
+    updated = 0
+    for row in range(2, ws.max_row + 1):
+        code_cell = ws.cell(row, col["Code"]).value
+        if code_cell is None:
+            continue
+        code = str(code_cell).strip().replace(".0", "")
+        src = by_code.get(code)
+        if not src:
+            continue
+        if "Désignation" in col and src.get("Désignation"):
+            ws.cell(row, col["Désignation"], sanitize_cell(src["Désignation"]))
+        if "Marque" in col and src.get("Marque"):
+            ws.cell(row, col["Marque"], sanitize_cell(src["Marque"]))
+        if "Catégorie" in col and src.get("Catégorie"):
+            ws.cell(row, col["Catégorie"], sanitize_cell(src["Catégorie"]))
+        if "Description" in col:
+            ws.cell(row, col["Description"], sanitize_cell(src.get("Description") or ""))
+        if "Variante" in col:
+            ws.cell(row, col["Variante"], sanitize_cell(src.get("Variante") or ""))
+        if "Diamètre" in col:
+            ws.cell(row, col["Diamètre"], sanitize_cell(src.get("Diamètre") or ""))
+        if "Réf.Pro" in col and src.get("Réf.Pro"):
+            ws.cell(row, col["Réf.Pro"], sanitize_cell(src["Réf.Pro"]))
+        updated += 1
+    wb.save(xlsx_path)
+    print(f"Patch Excel: {updated} lignes mises à jour → {xlsx_path}")
+
+
 def main():
-    os.makedirs(CATALOGUE_DIR, exist_ok=True)
-    os.makedirs(IMAGE_DIR, exist_ok=True)
-    print(f"PDF: {PDF_PATH}")
-    print(f"Images pièces (natif, sans zoom ×3) -> {IMAGE_DIR}")
-    print(f"Excel -> {OUTPUT_PATH}")
     products = process_pdf()
+    patch_path = os.environ.get("PATCH_EXISTING_XLSX")
+    if patch_path:
+        patch_existing_xlsx(products, patch_path)
+    if os.environ.get("EXTRACT_DEBUG_NO_EXCEL"):
+        print(f"DEBUG skip excel ({len(products)} rows)")
+        return
     write_excel(products)
     priced = sum(1 for p in products if p.get("Prix HT"))
     imaged = sum(1 for p in products if p.get("Image"))

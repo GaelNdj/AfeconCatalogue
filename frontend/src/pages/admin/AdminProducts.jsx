@@ -15,6 +15,7 @@ function emptyRefRow(sortOrder = 0) {
   return {
     id: null,
     code: '',
+    internal_code: '',
     variant_label: '',
     diameter: '',
     ref_pro: '',
@@ -22,6 +23,7 @@ function emptyRefRow(sortOrder = 0) {
     price_catalog_ht: '',
     price_sale_cdf: '',
     vendu_par: '1',
+    image_path: '',
     sort_order: sortOrder,
   };
 }
@@ -30,6 +32,7 @@ function refToRow(r, index) {
   return {
     id: r.id,
     code: r.code || '',
+    internal_code: r.internal_code || '',
     variant_label: r.variant_label || '',
     diameter: r.diameter || '',
     ref_pro: r.ref_pro || '',
@@ -37,6 +40,8 @@ function refToRow(r, index) {
     price_catalog_ht: r.price_catalog_ht ?? r.price_ht ?? '',
     price_sale_cdf: r.price_sale_cdf ?? '',
     vendu_par: r.vendu_par || '1',
+    image_path: r.image_path || '',
+    image_protected: !!r.image_edited_manually,
     sort_order: r.sort_order ?? index + 1,
   };
 }
@@ -49,6 +54,7 @@ function rowToPayload(row, productId) {
   return {
     product_id: productId,
     code: row.code.trim(),
+    internal_code: row.internal_code.trim() || null,
     variant_label: row.variant_label.trim() || null,
     diameter: row.diameter.trim() || null,
     ref_pro: row.ref_pro.trim() || null,
@@ -63,6 +69,8 @@ function rowToPayload(row, productId) {
       row.price_sale_cdf != null &&
       Number.isFinite(Number(row.price_sale_cdf)),
     vendu_par: row.vendu_par.trim() || '1',
+    // Toujours envoyé : chaîne vide = retirer la photo de cette référence.
+    image_path: row.image_path.trim(),
     sort_order: Number(row.sort_order) || null,
   };
 }
@@ -81,7 +89,7 @@ export default function AdminProducts() {
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    api.getFamilies().then(setFamilies).catch(console.error);
+    api.getFamilies({ all: true }).then(setFamilies).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -332,7 +340,6 @@ export default function AdminProducts() {
                   ['name', 'Nom *'],
                   ['brand', 'Marque'],
                   ['description', 'Description courte'],
-                  ['image_path', 'URL image'],
                 ].map(([key, label]) => (
                   <label key={key} className="block">
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
@@ -345,6 +352,41 @@ export default function AdminProducts() {
                     />
                   </label>
                 ))}
+                <div className="block">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                    Photo principale
+                  </span>
+                  <div className="mt-1 flex items-start gap-2">
+                    <div className="flex h-[38px] w-[38px] shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-surface">
+                      {imageUrl(form.image_path) ? (
+                        <img
+                          src={imageUrl(form.image_path)}
+                          alt=""
+                          className="h-full w-full object-contain"
+                        />
+                      ) : (
+                        <Package className="h-4 w-4 text-gray-300" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <input
+                        className="w-full rounded border border-border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-brand/30"
+                        placeholder="/uploads/p0235_05.png"
+                        value={form.image_path}
+                        onChange={(e) => setForm({ ...form, image_path: e.target.value })}
+                      />
+                      {form.image_path && (
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, image_path: '' })}
+                          className="mt-1 text-[10px] font-semibold text-muted hover:text-red-600"
+                        >
+                          Retirer la photo
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
                 <label className="block">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
                     Famille
@@ -405,14 +447,16 @@ export default function AdminProducts() {
                   </div>
 
                   <div className="overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full min-w-[880px] text-xs">
+                    <table className="w-full min-w-[1100px] text-xs">
                       <thead className="bg-surface text-left text-[10px] font-semibold uppercase tracking-wide text-muted">
                         <tr>
+                          <th className="px-2 py-2">Photo</th>
                           <th className="px-2 py-2">Désignation</th>
                           <th className="px-2 py-2">Dimensions</th>
                           <th className="px-2 py-2">Réf. Pro</th>
                           <th className="px-2 py-2">Réf. four.</th>
-                          <th className="px-2 py-2">Code</th>
+                          <th className="px-2 py-2">Code AFE</th>
+                          <th className="px-2 py-2">Code cat.</th>
                           <th className="px-2 py-2">Prix cat. €</th>
                           <th className="px-2 py-2">Prix fixe CDF</th>
                           <th className="px-2 py-2">Cond.</th>
@@ -422,13 +466,57 @@ export default function AdminProducts() {
                       <tbody>
                         {refRows.length === 0 && (
                           <tr>
-                            <td colSpan={8} className="px-3 py-4 text-center text-muted">
+                            <td colSpan={10} className="px-3 py-4 text-center text-muted">
                               Aucune référence — cliquez sur « Ajouter une ligne »
                             </td>
                           </tr>
                         )}
                         {refRows.map((row, index) => (
                           <tr key={row.id || `new-${index}`} className="border-t border-border">
+                            <td className="px-2 py-1.5">
+                              <div className="flex items-start gap-2">
+                                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-surface">
+                                  {imageUrl(row.image_path) ? (
+                                    <img
+                                      src={imageUrl(row.image_path)}
+                                      alt=""
+                                      className="h-full w-full object-contain"
+                                    />
+                                  ) : (
+                                    <Package className="h-4 w-4 text-gray-300" />
+                                  )}
+                                </div>
+                                <div className="min-w-[150px]">
+                                  <input
+                                    className="w-full rounded border border-border px-2 py-1 font-mono"
+                                    placeholder="/uploads/p0235_05.png"
+                                    value={row.image_path}
+                                    onChange={(e) =>
+                                      updateRefRow(index, 'image_path', e.target.value)
+                                    }
+                                  />
+                                  <div className="mt-1 flex items-center gap-2">
+                                    {row.image_path && (
+                                      <button
+                                        type="button"
+                                        onClick={() => updateRefRow(index, 'image_path', '')}
+                                        className="text-[10px] font-semibold text-muted hover:text-red-600"
+                                      >
+                                        Retirer la photo
+                                      </button>
+                                    )}
+                                    {row.image_protected && (
+                                      <span
+                                        className="text-[10px] font-semibold text-brand"
+                                        title="Photo choisie à la main : l'import du catalogue ne l'écrasera pas"
+                                      >
+                                        protégée
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
                             <td className="px-2 py-1.5">
                               <input
                                 className="w-full min-w-[120px] rounded border border-border px-2 py-1"
@@ -456,6 +544,14 @@ export default function AdminProducts() {
                                 className="w-full min-w-[70px] rounded border border-border px-2 py-1 font-mono"
                                 value={row.ref_four}
                                 onChange={(e) => updateRefRow(index, 'ref_four', e.target.value)}
+                              />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <input
+                                className="w-full min-w-[90px] rounded border border-border px-2 py-1 font-mono"
+                                placeholder="AFE-CON-098"
+                                value={row.internal_code}
+                                onChange={(e) => updateRefRow(index, 'internal_code', e.target.value)}
                               />
                             </td>
                             <td className="px-2 py-1.5">

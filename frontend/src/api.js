@@ -20,12 +20,39 @@ function adminHeaders(extra = {}) {
 }
 
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, options);
+  const res = await fetch(`${BASE}${path}`, {
+    credentials: 'include',
+    ...options,
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || 'Erreur API');
   }
   return res.json();
+}
+
+async function downloadFile(path, fallbackName) {
+  const res = await fetch(`${BASE}${path}`, {
+    credentials: 'include',
+    headers: adminHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || 'Erreur API');
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition');
+  let filename = fallbackName;
+  const match = disposition?.match(/filename="([^"]+)"/);
+  if (match) filename = match[1];
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function adminRequest(path, options = {}) {
@@ -34,10 +61,12 @@ async function adminRequest(path, options = {}) {
 }
 
 export const api = {
-  getFamilies: () => request('/api/families'),
+  getFamilies: (opts = {}) =>
+    opts.all ? adminRequest('/api/families?all=1') : request('/api/families'),
   getProducts: (params = {}) => {
     const q = new URLSearchParams(params).toString();
-    return request(`/api/products?${q}`);
+    const path = `/api/products${q ? `?${q}` : ''}`;
+    return getAdminKey() ? adminRequest(path) : request(path);
   },
   getProduct: (id) => request(`/api/products/${id}`),
   createProduct: (body) =>
@@ -140,6 +169,55 @@ export const api = {
       body: JSON.stringify(body),
     }),
   getCurrencyConfig: () => request('/api/config/currency'),
+  getMe: () => request('/api/auth/me'),
+  login: (body) =>
+    request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  register: (body) =>
+    request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  logout: () =>
+    request('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  updateProfile: (body) =>
+    request('/api/auth/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  getQuotes: () => request('/api/quotes'),
+  getQuote: (id) => request(`/api/quotes/${id}`),
+  createQuote: (body) =>
+    request('/api/quotes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  downloadQuotePdf: (id) => downloadFile(`/api/quotes/${id}/pdf`, `devis-${id}.pdf`),
+  getOrders: () => request('/api/orders'),
+  getOrder: (id) => request(`/api/orders/${id}`),
+  createOrder: (body) =>
+    request('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  downloadOrderPdf: (id) => downloadFile(`/api/orders/${id}/pdf`, `commande-${id}.pdf`),
+  getAdminOrders: () => adminRequest('/api/admin/orders'),
+  updateAdminOrderStatus: (id, status) =>
+    adminRequest(`/api/admin/orders/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    }),
 };
 
 export function imageUrl(path) {

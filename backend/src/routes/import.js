@@ -7,6 +7,7 @@ import XLSX from 'xlsx';
 import AdmZip from 'adm-zip';
 import { pool, query } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { assignMissingAfeCodes } from '../internalCode.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.resolve(__dirname, '../../uploads');
@@ -79,12 +80,29 @@ const COL_MAP = {
   'désignation variante': 'variant_label',
   ordre: 'sort_order',
   code: 'code',
+  'code interne': 'internal_code',
+  'code afecon': 'internal_code',
+  'code afe-con': 'internal_code',
+  'code afe': 'internal_code',
   famille: 'family',
   catégorie: 'category',
   categorie: 'category',
   'prix ht': 'price_ht',
-  note: 'note',
+  'note': 'note',
+  description: 'description',
+  'description courte': 'description',
   image: 'image',
+  'image produit': 'product_image',
+  'image_produit': 'product_image',
+  // Export Legrand
+  référence: 'code',
+  reference: 'code',
+  gencod: 'ref_four',
+  'tarif unitaire ht': 'price_ht',
+  'conditionnement de base': 'vendu_par',
+  'libellé famille remise': 'category',
+  'libelle famille remise': 'category',
+  'lien vers fiche produit legrand.fr': 'image',
 };
 
 function normalizeHeader(h) {
@@ -112,6 +130,12 @@ function normStr(v) {
 function normCode(v) {
   if (v == null) return null;
   const s = String(v).trim().replace(/\.0$/, '');
+  return s === '' ? null : s;
+}
+
+function normInternalCode(v) {
+  if (v == null) return null;
+  const s = String(v).trim().toUpperCase().replace(/\s+/g, '');
   return s === '' ? null : s;
 }
 
@@ -151,29 +175,25 @@ function resolveImportMode(raw) {
   return m === 'full' ? 'full' : 'sync';
 }
 
-/** En mode sync : conserve les champs métier si la référence a été modifiée en admin. */
+/** En mode sync : ne fige que les prix vente / codes AFE admin — le catalogue (nom, variante, Ø) reste à jour. */
 function effectivePayloadForUpdate(cur, payload, importMode) {
+  // Une photo choisie à la main dans l'admin est conservée dans tous les modes :
+  // sinon l'outil de correction des photos perdrait son sens au réimport.
+  const base = cur.image_edited_manually
+    ? { ...payload, image_path: cur.image_path }
+    : payload;
   const sync = importMode === 'sync';
   const protectedRef = sync && cur.edited_manually;
   if (!protectedRef) {
-    return { eff: payload, protectedRef: false };
+    return { eff: base, protectedRef: false };
   }
   return {
     eff: {
-      ...payload,
-      product_id: cur.product_id,
-      ref_pro: cur.ref_pro,
-      ref_four: cur.ref_four,
-      diameter: cur.diameter,
-      vendu_par: cur.vendu_par,
-      note: cur.note,
-      variant_label: cur.variant_label,
-      sort_order: cur.sort_order,
-      price_catalog_ht: payload.price_catalog_ht,
-      price_on_quote: payload.price_on_quote,
+      ...base,
+      internal_code: cur.internal_code,
       price_sale_cdf: cur.price_sale_cdf,
       price_is_manual_cdf: cur.price_is_manual_cdf,
-      image_path: payload.image_path || cur.image_path,
+      image_path: base.image_path || cur.image_path,
     },
     protectedRef: true,
   };
@@ -191,6 +211,7 @@ function referenceRowChanged(cur, eff) {
     !same(cur.note, eff.note) ||
     !same(cur.variant_label, eff.variant_label) ||
     !same(cur.sort_order, eff.sort_order) ||
+    !same(cur.internal_code, eff.internal_code) ||
     (eff.image_path && !same(cur.image_path, eff.image_path))
   );
 }
@@ -220,15 +241,20 @@ async function ensureCategory(client, familyId, name) {
 async function findOrCreateProduct(client, row, familyId, categoryId, imagePath) {
   const name = normStr(row.designation) || `Produit ${row.code}`;
   const brand = normStr(row.brand);
+  const hero = imagePath || null;
 
+  // Même nom + même catégorie + même marque : deux blocs catalogue (Virax /
+  // Rothenberger) restent distincts grâce à la photo principale du bloc.
   const existing = await client.query(
-    `SELECT id, name, brand, description, note, family_id, category_id, image_path
+    `SELECT id, name, brand, description, note, family_id, category_id, image_path,
+            image_edited_manually
      FROM products
      WHERE name = $1
        AND COALESCE(brand,'') = COALESCE($2,'')
        AND COALESCE(category_id,0) = COALESCE($3,0)
+       AND COALESCE(image_path,'') = COALESCE($4,'')
      LIMIT 1`,
-    [name, brand, categoryId]
+    [name, brand, categoryId, hero]
   );
 
   if (existing.rows[0]) {
@@ -236,23 +262,24 @@ async function findOrCreateProduct(client, row, familyId, categoryId, imagePath)
     const updates = {};
     if (familyId && p.family_id !== familyId) updates.family_id = familyId;
     if (categoryId && p.category_id !== categoryId) updates.category_id = categoryId;
-    if (imagePath && imagePath !== p.image_path) updates.image_path = imagePath;
     if (row.note && !p.note) updates.note = normStr(row.note);
+    if (row.description) updates.description = normStr(row.description);
+    if (name && p.name !== name) updates.name = name;
 
     if (Object.keys(updates).length) {
       await client.query(
         `UPDATE products SET
            family_id = COALESCE($1, family_id),
            category_id = COALESCE($2, category_id),
-           image_path = COALESCE($3, image_path),
-           note = COALESCE($4, note),
+           note = COALESCE($3, note),
+           description = COALESCE($4, description),
            updated_at = NOW()
          WHERE id = $5`,
         [
           updates.family_id ?? null,
           updates.category_id ?? null,
-          updates.image_path ?? null,
           updates.note ?? null,
+          updates.description ?? null,
           p.id,
         ]
       );
@@ -266,19 +293,71 @@ async function findOrCreateProduct(client, row, familyId, categoryId, imagePath)
     [
       name,
       brand,
-      name,
+      normStr(row.description) || null,
       normStr(row.note),
       familyId,
       categoryId,
-      imagePath,
+      hero,
     ]
   );
   return r.rows[0].id;
 }
 
-function resolveImagePath(row, imageMap) {
-  const img = normStr(row.image);
+function isHttpUrl(s) {
+  return /^https?:\/\//i.test(String(s || ''));
+}
+
+function imageExtFromContentType(ct, url) {
+  const t = String(ct || '').toLowerCase();
+  if (t.includes('png')) return '.png';
+  if (t.includes('webp')) return '.webp';
+  if (t.includes('gif')) return '.gif';
+  const m = String(url || '').match(/\.(jpe?g|png|webp|gif)(\?|$)/i);
+  if (m) return `.${m[1].toLowerCase().replace('jpeg', 'jpg')}`;
+  return '.jpg';
+}
+
+async function downloadImageFromUrl(url, code, imageMap) {
+  const normalized = String(url).trim();
+  if (!isHttpUrl(normalized)) return null;
+  const cacheKey = `url:${normalized.toLowerCase()}`;
+  if (imageMap.has(cacheKey)) return imageMap.get(cacheKey);
+
+  try {
+    const res = await fetch(normalized, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'image/*,*/*;q=0.8',
+      },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) return null;
+    const ct = res.headers.get('content-type') || '';
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 500) return null;
+    const ext = imageExtFromContentType(ct, normalized);
+    const safeCode = String(code || 'img').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filename = `import_${safeCode}${ext}`;
+    const dest = path.join(uploadDir, filename);
+    fs.writeFileSync(dest, buf);
+    const publicPath = `/uploads/${filename}`;
+    imageMap.set(cacheKey, publicPath);
+    imageMap.set(filename.toLowerCase(), filename);
+    return publicPath;
+  } catch {
+    return null;
+  }
+}
+
+function resolveImagePath(row, imageMap, field = 'image') {
+  const img = normStr(row[field]);
   if (!img) return null;
+  if (isHttpUrl(img)) {
+    const cached = imageMap.get(`url:${img.toLowerCase()}`);
+    if (cached) return cached;
+    return null;
+  }
   const normalized = img.replace(/\\/g, '/');
   const base = path.basename(normalized);
   const candidates = [
@@ -364,6 +443,8 @@ router.post(
       const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: null });
 
       const importMode = resolveImportMode(req.body.import_mode);
+      const downloadImageUrls =
+        req.body.download_image_urls === '1' || req.body.download_image_urls === 'true';
 
       let added = 0;
       let updated = 0;
@@ -378,6 +459,8 @@ router.post(
       for (const raw of rawRows) {
         try {
           const row = mapRow(raw);
+          if (!row.ref_pro && row.code) row.ref_pro = String(row.code);
+          if (!row.code && row.ref_pro) row.code = String(row.ref_pro);
           const code = normCode(row.code);
           if (!code) {
             errors++;
@@ -387,18 +470,25 @@ router.post(
 
           const familyId = await ensureFamily(client, row.family);
           const categoryId = await ensureCategory(client, familyId, row.category);
-          const imagePath = resolveImagePath(row, imageMap);
-          const productId = await findOrCreateProduct(
+          let skuImagePath = resolveImagePath(row, imageMap, 'image');
+          if (!skuImagePath && downloadImageUrls && isHttpUrl(row.image)) {
+            skuImagePath = await downloadImageFromUrl(row.image, code, imageMap);
+            if (skuImagePath) imagesImported++;
+          }
+          const productImagePath =
+            resolveImagePath(row, imageMap, 'product_image') || skuImagePath;
+          let productId = await findOrCreateProduct(
             client,
             row,
             familyId,
             categoryId,
-            imagePath
+            productImagePath
           );
 
           const priceInfo = parsePriceCell(row.price_ht);
           const payload = {
             code,
+            internal_code: normInternalCode(row.internal_code),
             product_id: productId,
             ref_pro: normStr(row.ref_pro),
             ref_four: normStr(row.ref_four),
@@ -409,7 +499,7 @@ router.post(
             note: normStr(row.note),
             variant_label: normStr(row.variant_label),
             sort_order: row.sort_order == null || row.sort_order === '' ? null : parseInt(row.sort_order, 10) || null,
-            image_path: imagePath,
+            image_path: skuImagePath,
           };
 
           const existing = await client.query(
@@ -417,14 +507,53 @@ router.post(
             [code]
           );
 
+            if (existing.rows[0]) {
+            const prevProductId = existing.rows[0].product_id;
+            payload.product_id = productId;
+            if (prevProductId && prevProductId !== productId) {
+              await client.query(
+                `UPDATE products np
+                 SET image_path = COALESCE(np.image_path, op.image_path)
+                 FROM products op
+                 WHERE np.id = $1 AND op.id = $2
+                   AND NOT np.image_edited_manually`,
+                [productId, prevProductId]
+              );
+            }
+            await client.query(
+              `UPDATE products SET
+                 name = COALESCE($1, name),
+                 description = COALESCE($2, description),
+                 brand = COALESCE($3, brand),
+                 category_id = COALESCE($4, category_id),
+                 family_id = COALESCE($5, family_id),
+                 image_path = CASE
+                   WHEN image_edited_manually THEN image_path
+                   ELSE COALESCE($6, image_path)
+                 END,
+                 updated_at = NOW()
+               WHERE id = $7`,
+              [
+                normStr(row.designation),
+                normStr(row.description),
+                normStr(row.brand),
+                categoryId,
+                familyId,
+                productImagePath || null,
+                productId,
+              ]
+            );
+          }
+
           if (!existing.rows[0]) {
             await client.query(
               `INSERT INTO references_sku
-                (code, product_id, ref_pro, ref_four, diameter, vendu_par, price_ht, price_catalog_ht,
+                (code, internal_code, product_id, ref_pro, ref_four, diameter, vendu_par, price_ht, price_catalog_ht,
                  price_on_quote, note, variant_label, sort_order, image_path)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,$12)`,
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,$13)`,
               [
                 payload.code,
+                payload.internal_code,
                 payload.product_id,
                 payload.ref_pro,
                 payload.ref_four,
@@ -458,9 +587,10 @@ router.post(
                    note = $8,
                    variant_label = $9,
                    sort_order = $10,
-                   image_path = COALESCE($11, image_path),
+                   internal_code = COALESCE($11, internal_code),
+                   image_path = COALESCE($12, image_path),
                    updated_at = NOW()
-                 WHERE code = $12`,
+                 WHERE code = $13`,
                 [
                   eff.product_id,
                   eff.ref_pro,
@@ -472,6 +602,7 @@ router.post(
                   eff.note,
                   eff.variant_label,
                   Number.isFinite(eff.sort_order) ? eff.sort_order : null,
+                  eff.internal_code,
                   eff.image_path,
                   code,
                 ]
@@ -492,6 +623,13 @@ router.post(
       }
 
       await client.query(
+        `DELETE FROM products p
+         WHERE NOT EXISTS (SELECT 1 FROM references_sku r WHERE r.product_id = p.id)`
+      );
+
+      const afeFill = await assignMissingAfeCodes(client);
+
+      await client.query(
         `INSERT INTO import_logs (filename, added, updated, unchanged, errors, details)
          VALUES ($1,$2,$3,$4,$5,$6)`,
         [
@@ -503,9 +641,11 @@ router.post(
           JSON.stringify({
             errorSamples,
             images: imagesImported,
+            downloadImageUrls,
             importMode,
             catalogSynced,
             protectedSkipped,
+            afeAssigned: afeFill.n,
           }),
         ]
       );
@@ -530,6 +670,7 @@ router.post(
         protectedSkipped,
         errors,
         imagesImported,
+        afeAssigned: afeFill.n,
         errorSamples,
       });
     } catch (e) {

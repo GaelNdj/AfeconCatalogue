@@ -64,12 +64,21 @@ export function resolvePublicDisplayPrice(ref, product, marginRules, exception) 
   };
 }
 
+/** Code affiché au visiteur : code interne AFE, sinon code catalogue (transition). */
+export function publicDisplayCode(ref) {
+  const internal = ref.internal_code?.trim();
+  if (internal) return internal.toUpperCase();
+  return ref.code;
+}
+
 export function enrichReferencePublic(ref, product, marginRules, exception) {
   const pricing = resolvePublicDisplayPrice(ref, product, marginRules, exception);
   const withCurrency = applyPublicCurrency(pricing, ref);
   return {
     id: ref.id,
-    code: ref.code,
+    code: publicDisplayCode(ref),
+    /** Affichage temporaire — vérification correspondance AFE / catalogue */
+    supplier_code: ref.code,
     product_id: ref.product_id,
     ref_pro: ref.ref_pro,
     ref_four: ref.ref_four,

@@ -29,7 +29,7 @@ export default function AdminShipping() {
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const [f, r] = await Promise.all([api.getFamilies(), api.getShippingRules()]);
+    const [f, r] = await Promise.all([api.getFamilies({ all: true }), api.getShippingRules()]);
     setFamilies(f);
     setRules(r);
   }

@@ -10,6 +10,7 @@ export default function AdminImport() {
     '/Users/gael/Desktop/catalogue/images_hq'
   );
   const [importMode, setImportMode] = useState('sync');
+  const [downloadImageUrls, setDownloadImageUrls] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [logs, setLogs] = useState([]);
@@ -35,6 +36,7 @@ export default function AdminImport() {
       if (imagesZip) fd.append('images_zip', imagesZip);
       if (imagesDir.trim()) fd.append('images_dir', imagesDir.trim());
       fd.append('import_mode', importMode);
+      if (downloadImageUrls) fd.append('download_image_urls', '1');
       const res = await api.importCatalog(fd);
       setResult(res);
     } catch (err) {
@@ -51,9 +53,12 @@ export default function AdminImport() {
     <div className="max-w-2xl">
       <h2 className="font-display text-xl font-bold text-ink">Import catalogue</h2>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        Mise à jour par <strong className="text-ink">Code</strong> (7 chiffres).
-        En mode <strong className="text-ink">Sync catalogue</strong>, les désignations corrigées en
-        admin ne sont pas écrasées.
+        Mise à jour par <strong className="text-ink">Code catalogue</strong> (7 chiffres ou réf.
+        fournisseur). Colonne optionnelle <strong className="text-ink">Code interne</strong>{' '}
+        (ex. AFE-CON-098) pour vos codes AFE affichés sur le site.
+        En mode <strong className="text-ink">Sync catalogue</strong>, les prix de vente
+        saisis à la main et les codes AFE sont conservés. Nom, description, variantes et Ø
+        catalogue sont bien mis à jour.
       </p>
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
@@ -70,8 +75,9 @@ export default function AdminImport() {
                 className="mt-1"
               />
               <span>
-                <strong>Sync catalogue</strong> (recommandé) — met à jour prix catalogue, prix sur
-                devis, images et nouveaux codes. Conserve les désignations modifiées en admin.
+                <strong>Sync catalogue</strong> (recommandé) — met à jour nom, description,
+                variantes, Ø, prix catalogue, images et nouveaux codes. Conserve les prix de
+                vente saisis à la main et les codes AFE.
               </span>
             </label>
             <label className="flex cursor-pointer items-start gap-2">
@@ -147,6 +153,21 @@ export default function AdminImport() {
             onChange={(e) => setImagesDir(e.target.value)}
             placeholder="/Users/gael/Desktop/catalogue/images_hq"
           />
+        </label>
+
+        <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-border bg-surface/60 px-5 py-4 text-sm">
+          <input
+            type="checkbox"
+            checked={downloadImageUrls}
+            onChange={(e) => setDownloadImageUrls(e.target.checked)}
+            className="mt-1"
+          />
+          <span>
+            <strong>Télécharger les images depuis les URLs</strong> (export Legrand — colonne
+            « Lien vers fiche produit »). Si Legrand bloque le serveur, utilisez le script{' '}
+            <code className="text-xs">convert_legrand.py --download-images</code> puis le dossier
+            images.
+          </span>
         </label>
 
         <button

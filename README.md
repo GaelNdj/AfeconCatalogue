@@ -67,6 +67,34 @@ npm run dev
 
 Ouvrir [http://localhost:5173](http://localhost:5173).
 
+## Import Legrand (Électricité)
+
+Export fournisseur `.numbers` ou `.xlsx` → format catalogue Afecon :
+
+```bash
+pip install numbers-parser openpyxl playwright
+python3 -m playwright install chromium
+python scripts/convert_legrand.py ~/Downloads/legrand-tarif-professionnel-reference-ht.xlsx \
+  -o ~/Desktop/catalogue/electricite_legrand.xlsx \
+  --download-images --workers 8
+```
+
+Les photos sont d’abord téléchargées depuis le CDN Legrand (`/ecat/`), puis Playwright ouvre les fiches restantes sur legrand.fr (protection Cloudflare). Les fichiers vont dans `~/Desktop/catalogue/images_hq/` (`legrand_{référence}.jpg`).
+
+Le script ne garde que les colonnes utiles (`Code`, `Désignation`, `Prix HT`, `Famille` = Électricité, etc.) et ignore le reste (DEEE, empreinte carbone, douane…).
+
+| Colonne Legrand | → Import |
+|-----------------|----------|
+| Référence | Code + Réf.Pro |
+| GENCOD | Réf.Four |
+| Désignation | Désignation (fiche produit) |
+| Libellé Famille Remise | Catégorie |
+| Tarif unitaire HT | Prix HT |
+| Conditionnement de base | Vendu par |
+| Lien fiche legrand.fr | Image (URL) |
+
+Puis **Admin → Import** : fichier converti, mode **Import complet** pour le 1er import Électricité, dossier `images_hq` si photos téléchargées. Option « Télécharger les images depuis les URLs » si besoin.
+
 ## Import Excel + images
 
 1. Admin → **Import**

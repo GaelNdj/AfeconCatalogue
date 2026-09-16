@@ -4,13 +4,18 @@ import { requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
 
-router.get('/', async (_req, res, next) => {
+router.get('/', async (req, res, next) => {
   try {
+    const expected = process.env.ADMIN_API_KEY;
+    const isAdmin =
+      Boolean(expected) && req.get('X-Admin-Key') === expected && req.query.all === '1';
     const families = await query(
       `SELECT f.*,
         (SELECT COUNT(DISTINCT p.id)::int FROM products p WHERE p.family_id = f.id) AS product_count
        FROM families f
-       ORDER BY f.sort_order, f.name`
+       WHERE $1::boolean OR COALESCE(f.visible, true)
+       ORDER BY f.sort_order, f.name`,
+      [isAdmin]
     );
     const categories = await query(
       `SELECT c.*,
@@ -23,12 +28,11 @@ router.get('/', async (_req, res, next) => {
       if (!byFamily[c.family_id]) byFamily[c.family_id] = [];
       byFamily[c.family_id].push(c);
     }
-    res.json(
-      families.rows.map((f) => ({
-        ...f,
-        categories: byFamily[f.id] || [],
-      }))
-    );
+    const payload = families.rows.map((f) => ({
+      ...f,
+      categories: byFamily[f.id] || [],
+    }));
+    res.json(payload);
   } catch (e) {
     next(e);
   }
@@ -51,14 +55,20 @@ router.post('/', requireAdmin, async (req, res, next) => {
 
 router.put('/:id', requireAdmin, async (req, res, next) => {
   try {
-    const { name, sort_order } = req.body;
+    const { name, sort_order, visible } = req.body;
     const r = await query(
       `UPDATE families SET
          name = COALESCE($1, name),
          sort_order = COALESCE($2, sort_order),
+         visible = COALESCE($3, visible),
          updated_at = NOW()
-       WHERE id = $3 RETURNING *`,
-      [name?.trim() || null, sort_order ?? null, req.params.id]
+       WHERE id = $4 RETURNING *`,
+      [
+        name?.trim() || null,
+        sort_order ?? null,
+        typeof visible === 'boolean' ? visible : null,
+        req.params.id,
+      ]
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'Introuvable' });
     res.json(r.rows[0]);

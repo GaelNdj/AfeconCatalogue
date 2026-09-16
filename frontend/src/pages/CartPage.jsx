@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingBag, Trash2, Truck } from 'lucide-react';
+import { FileText, ShoppingBag, Trash2, Truck } from 'lucide-react';
 import { api, formatCdf, eurToCdf, eurToUsd } from '../api.js';
 import { useCart } from '../context/CartContext.jsx';
 import PriceDisplay from '../components/PriceDisplay.jsx';
 
 export default function CartPage() {
-  const { items, setQty, clear, count, total_cdf, total_eur } = useCart();
+  const { items, setQty, clear, count, total_cdf, total_usd, total_eur } = useCart();
   const [shipping, setShipping] = useState(null);
 
   useEffect(() => {
@@ -23,6 +23,7 @@ export default function CartPage() {
   const shippingCdf = shipping?.free_shipping ? 0 : eurToCdf(shipping?.fee_ht ?? 0);
   const shippingUsd = shipping?.free_shipping ? 0 : eurToUsd(shipping?.fee_ht ?? 0);
   const grandTotalCdf = total_cdf + shippingCdf;
+  const grandTotalUsd = total_usd + shippingUsd;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
@@ -60,7 +61,8 @@ export default function CartPage() {
                     <div className="mt-0.5 text-xs text-muted">
                       {i.variant_label && `${i.variant_label} · `}
                       {i.diameter && `${i.diameter} · `}
-                      Réf. {i.ref_pro || '—'} · Code {i.code}
+                      Réf. {i.ref_pro || '—'} · AFE {i.code}
+                      {i.supplier_code && ` · Cat. ${i.supplier_code}`}
                       {i.offer_label && (
                         <span className="ml-1 text-accent">· {i.offer_label}</span>
                       )}
@@ -89,7 +91,7 @@ export default function CartPage() {
             </div>
             <div className="mt-2 flex justify-between text-sm">
               <span className="text-muted">Sous-total articles HT</span>
-              <span className="font-medium">{formatCdf(total_cdf)}</span>
+              <PriceDisplay cdf={total_cdf} usd={total_usd} size="sm" />
             </div>
             <div className="mt-1 flex justify-between text-sm">
               <span className="text-muted">
@@ -106,15 +108,13 @@ export default function CartPage() {
                 )}
               </span>
             </div>
-            <div className="mt-3 flex justify-between border-t border-border pt-3">
+            <div className="mt-3 flex items-baseline justify-between border-t border-border pt-3">
               <span className="font-display font-bold text-ink">Total HT</span>
-              <span className="font-display text-xl font-bold text-ink">
-                {formatCdf(grandTotalCdf)}
-              </span>
+              <PriceDisplay cdf={grandTotalCdf} usd={grandTotalUsd} size="lg" />
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
             <button
               type="button"
               onClick={clear}
@@ -123,6 +123,13 @@ export default function CartPage() {
               <Trash2 className="h-4 w-4" />
               Vider le panier
             </button>
+            <Link
+              to="/panier/devis"
+              className="inline-flex items-center gap-2 rounded-full bg-brand px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-dark"
+            >
+              <FileText className="h-4 w-4" />
+              Demander un devis
+            </Link>
           </div>
         </>
       )}

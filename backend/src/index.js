@@ -13,6 +13,10 @@ import importRouter from './routes/import.js';
 import contactRouter from './routes/contact.js';
 import pricingRouter from './routes/pricing.js';
 import configRouter from './routes/config.js';
+import authRouter from './routes/auth.js';
+import quotesRouter from './routes/quotes.js';
+import ordersRouter, { adminRouter as adminOrdersRouter } from './routes/orders.js';
+import { attachUser } from './middleware/userAuth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env') });
@@ -31,11 +35,13 @@ app.use(
 app.use(
   cors({
     origin: frontendOrigin,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    credentials: true,
     allowedHeaders: ['Content-Type', 'X-Admin-Key'],
   })
 );
 app.use(express.json({ limit: '10mb' }));
+app.use(attachUser);
 app.use('/uploads', express.static(uploadDir));
 
 const contactLimiter = rateLimit({
@@ -55,6 +61,10 @@ app.use('/api/import', importRouter);
 app.use('/api/contact', contactLimiter, contactRouter);
 app.use('/api/pricing', pricingRouter);
 app.use('/api/config', configRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/quotes', quotesRouter);
+app.use('/api/orders', ordersRouter);
+app.use('/api/admin/orders', adminOrdersRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

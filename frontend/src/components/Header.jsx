@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Search, ShoppingCart, Settings2, MessageCircle } from 'lucide-react';
+import { Search, ShoppingCart, Settings2, MessageCircle, User } from 'lucide-react';
 import { useCart } from '../context/CartContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const { count } = useCart();
+  const { user, loading: authLoading } = useAuth();
   const [q, setQ] = useState(() => {
     const params = new URLSearchParams(location.search);
     return params.get('q') || '';
@@ -42,7 +44,7 @@ export default function Header() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Rechercher par code, référence ou désignation…"
+              placeholder="Rechercher par code AFE, référence ou désignation…"
               className="w-full rounded-full border border-border bg-surface py-2.5 pl-11 pr-4 text-sm outline-none transition placeholder:text-muted/80 focus:border-brand/40 focus:bg-white focus:ring-4 focus:ring-brand/10"
             />
           </div>
@@ -57,6 +59,16 @@ export default function Header() {
             <MessageCircle className="h-4 w-4 text-brand" />
             <span className="hidden lg:inline">Pièce introuvable ?</span>
           </Link>
+          {!authLoading && (
+            <Link
+              to={user ? '/compte' : '/connexion'}
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-3 py-2 text-sm font-medium text-ink-soft transition hover:border-brand/30 hover:bg-brand-soft/50 sm:px-4"
+              title={user ? 'Mon compte' : 'Connexion'}
+            >
+              <User className="h-4 w-4 text-brand" />
+              <span className="hidden md:inline">{user ? 'Compte' : 'Connexion'}</span>
+            </Link>
+          )}
           <Link
             to="/panier"
             className="relative inline-flex items-center gap-2 rounded-full border border-border bg-white px-4 py-2 text-sm font-medium text-ink-soft transition hover:border-brand/30 hover:bg-brand-soft/50"

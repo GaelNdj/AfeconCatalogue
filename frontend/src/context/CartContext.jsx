@@ -18,6 +18,7 @@ export function CartProvider({ children }) {
         ...prev,
         {
           code: ref.code,
+          supplier_code: ref.supplier_code,
           ref_pro: ref.ref_pro,
           diameter: ref.diameter,
           price_cdf: Number(ref.display_price_cdf) || 0,

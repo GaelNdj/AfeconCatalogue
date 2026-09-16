@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Minus, Plus, ShoppingCart, Package, Box, ChevronRight } from 'lucide-react';
-import { api, imageUrl, isQuotePrice, formatCdf, QUOTE_PRICE_HINT, QUOTE_PRICE_TITLE } from '../api.js';
+import { api, imageUrl, isQuotePrice, formatCdf, formatUsd, QUOTE_PRICE_HINT, QUOTE_PRICE_TITLE } from '../api.js';
 import { useCart } from '../context/CartContext.jsx';
 import PriceDisplay from '../components/PriceDisplay.jsx';
 
 export default function ProductPage() {
   const { id } = useParams();
-  const { addItem, count, total_cdf } = useCart();
+  const { addItem, count, total_cdf, total_usd } = useCart();
   const [product, setProduct] = useState(null);
   const [qtys, setQtys] = useState({});
-  const [pendingTotal, setPendingTotal] = useState({ count: 0, sum: 0 });
+  const [pendingTotal, setPendingTotal] = useState({ count: 0, sumCdf: 0, sumUsd: 0 });
 
   useEffect(() => {
     api.getProduct(id).then(setProduct).catch(console.error);
@@ -19,14 +19,16 @@ export default function ProductPage() {
   useEffect(() => {
     if (!product?.references) return;
     let c = 0;
-    let s = 0;
+    let sumCdf = 0;
+    let sumUsd = 0;
     for (const r of product.references) {
       if (isQuotePrice(r)) continue;
       const q = qtys[r.code] || 0;
       c += q;
-      s += q * (Number(r.display_price_cdf) || 0);
+      sumCdf += q * (Number(r.display_price_cdf) || 0);
+      sumUsd += q * (Number(r.display_price_usd) || 0);
     }
-    setPendingTotal({ count: c, sum: s });
+    setPendingTotal({ count: c, sumCdf, sumUsd });
   }, [qtys, product]);
 
   const hasQuoteRefs = useMemo(
@@ -124,7 +126,7 @@ export default function ProductPage() {
         ))}
       </nav>
 
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(580px,48rem)] lg:items-start">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(660px,54rem)] lg:items-start">
         <div className="space-y-4 lg:max-w-xl">
           <div className="card p-5 sm:p-6">
             {product.brand && (
@@ -215,18 +217,19 @@ export default function ProductPage() {
             </div>
           )}
 
-          <div className="card overflow-hidden">
-            <table className="w-full table-fixed text-xs sm:text-sm">
+          <div className="card overflow-x-auto">
+            <table className="w-full min-w-[780px] text-xs sm:text-sm">
                 <thead>
                   <tr className="border-b border-border bg-surface text-left text-[10px] font-semibold uppercase tracking-wide text-muted sm:text-[11px]">
-                    <th className="w-[22%] px-2 py-2.5 sm:px-3 sm:py-3">Désignation</th>
-                    <th className="w-[12%] px-2 py-2.5 sm:px-3 sm:py-3">Dimensions</th>
-                    <th className="w-[10%] px-2 py-2.5 sm:px-3 sm:py-3">Réf. Pro</th>
-                    <th className="w-[9%] px-2 py-2.5 sm:px-3 sm:py-3">Code</th>
-                    <th className="w-[12%] px-2 py-2.5 sm:px-3 sm:py-3">Prix HT</th>
-                    <th className="w-[6%] px-1.5 py-2.5 sm:py-3">Cond.</th>
-                    <th className="w-[13%] px-1.5 py-2.5 sm:py-3">Qté</th>
-                    <th className="w-[16%] px-2 py-2.5 sm:px-3 sm:py-3" />
+                    <th className="px-2 py-2.5 sm:px-3 sm:py-3">Désignation</th>
+                    <th className="px-2 py-2.5 sm:px-3 sm:py-3">Dimensions</th>
+                    <th className="px-2 py-2.5 sm:px-3 sm:py-3">Réf. Pro</th>
+                    <th className="whitespace-nowrap px-2 py-2.5 sm:px-3 sm:py-3">Code AFE</th>
+                    <th className="whitespace-nowrap px-2 py-2.5 sm:px-3 sm:py-3">Code cat.</th>
+                    <th className="px-2 py-2.5 sm:px-3 sm:py-3">Prix HT</th>
+                    <th className="px-1.5 py-2.5 sm:py-3">Cond.</th>
+                    <th className="px-1.5 py-2.5 sm:py-3">Qté</th>
+                    <th className="px-2 py-2.5 sm:px-3 sm:py-3" />
                   </tr>
                 </thead>
                 <tbody>
@@ -244,7 +247,12 @@ export default function ProductPage() {
                       </td>
                       <td className="px-2 py-2.5 text-muted break-words sm:px-3 sm:py-3">{r.diameter || '—'}</td>
                       <td className="px-2 py-2.5 text-muted break-words sm:px-3 sm:py-3">{r.ref_pro || '—'}</td>
-                      <td className="px-2 py-2.5 font-mono text-[10px] text-muted sm:px-3 sm:py-3 sm:text-xs">{r.code}</td>
+                      <td className="whitespace-nowrap px-2 py-2.5 font-mono text-[10px] font-semibold text-brand sm:px-3 sm:py-3 sm:text-xs">
+                        {r.code}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2.5 font-mono text-[10px] text-muted sm:px-3 sm:py-3 sm:text-xs">
+                        {r.supplier_code || '—'}
+                      </td>
                     <td className="px-2 py-2.5 sm:px-3 sm:py-3">
                       {quote ? (
                         <PriceDisplay ref={r} size="sm" />
@@ -321,13 +329,24 @@ export default function ProductPage() {
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
           <div className="text-sm">
             <span className="text-muted">Sélection en cours : </span>
-            <span className="font-semibold text-ink">
-              {pendingTotal.count} article{pendingTotal.count !== 1 ? 's' : ''} ·{' '}
-              {formatCdf(pendingTotal.sum)}
+            <span className="inline-flex flex-wrap items-baseline gap-x-1.5 font-semibold text-ink">
+              <span>
+                {pendingTotal.count} article{pendingTotal.count !== 1 ? 's' : ''} ·{' '}
+                {formatCdf(pendingTotal.sumCdf)}
+              </span>
+              {pendingTotal.sumUsd > 0 && (
+                <span className="text-[11px] font-medium text-muted">
+                  {formatUsd(pendingTotal.sumUsd)}
+                </span>
+              )}
             </span>
             {count > 0 && (
-              <span className="ml-3 text-xs text-muted">
-                (panier : {count} · {formatCdf(total_cdf)})
+              <span className="ml-3 inline-flex flex-wrap items-baseline gap-x-1 text-xs text-muted">
+                <span>(panier : {count} · {formatCdf(total_cdf)}</span>
+                {total_usd > 0 && (
+                  <span className="text-[10px]">{formatUsd(total_usd)}</span>
+                )}
+                <span>)</span>
               </span>
             )}
           </div>

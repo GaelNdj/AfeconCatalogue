@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS families (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL UNIQUE,
   sort_order INT NOT NULL DEFAULT 0,
+  visible BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -101,6 +102,13 @@ ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS price_on_quote BOOLEAN NOT N
 ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS edited_manually BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS price_sale_cdf NUMERIC(14, 2);
 ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS price_is_manual_cdf BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS internal_code VARCHAR(30);
+-- Photo choisie à la main dans l'admin : l'import catalogue ne doit pas l'écraser.
+ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS image_edited_manually BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS image_edited_manually BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE families ADD COLUMN IF NOT EXISTS visible BOOLEAN NOT NULL DEFAULT true;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ref_internal_code ON references_sku (internal_code)
+  WHERE internal_code IS NOT NULL;
 
 UPDATE references_sku
 SET price_catalog_ht = price_ht
@@ -152,6 +160,129 @@ CREATE TABLE IF NOT EXISTS shipping_rules (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Comptes clients (devis / commandes)
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  company_name VARCHAR(255),
+  phone VARCHAR(50),
+  address_line TEXT,
+  city VARCHAR(100),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS user_sessions (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS quotes (
+  id SERIAL PRIMARY KEY,
+  quote_number VARCHAR(32) NOT NULL UNIQUE,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  subtotal_ht NUMERIC(12, 4) NOT NULL DEFAULT 0,
+  shipping_ht NUMERIC(12, 4) NOT NULL DEFAULT 0,
+  total_ht NUMERIC(12, 4) NOT NULL DEFAULT 0,
+  subtotal_cdf NUMERIC(14, 2),
+  shipping_cdf NUMERIC(14, 2),
+  total_cdf NUMERIC(14, 2),
+  eur_to_cdf NUMERIC(10, 4),
+  shipping_rule_name VARCHAR(255),
+  valid_until DATE,
+  customer_snapshot JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_quotes_user ON quotes(user_id);
+CREATE INDEX IF NOT EXISTS idx_quotes_created ON quotes(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS quote_lines (
+  id SERIAL PRIMARY KEY,
+  quote_id INT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+  reference_id INT REFERENCES references_sku(id) ON DELETE SET NULL,
+  sku_code VARCHAR(20) NOT NULL,
+  internal_code VARCHAR(30),
+  ref_pro VARCHAR(100),
+  product_name VARCHAR(500),
+  variant_label VARCHAR(500),
+  diameter VARCHAR(100),
+  qty INT NOT NULL,
+  unit_price_ht NUMERIC(12, 4),
+  unit_price_cdf NUMERIC(14, 2),
+  unit_price_usd NUMERIC(12, 4),
+  line_total_ht NUMERIC(12, 4),
+  line_total_cdf NUMERIC(14, 2),
+  price_on_quote BOOLEAN NOT NULL DEFAULT false,
+  sort_order INT
+);
+
+CREATE INDEX IF NOT EXISTS idx_quote_lines_quote ON quote_lines(quote_id);
+
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS subtotal_usd NUMERIC(12, 4);
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS shipping_usd NUMERIC(12, 4);
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS total_usd NUMERIC(12, 4);
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS eur_to_usd NUMERIC(10, 4);
+ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS line_total_usd NUMERIC(12, 4);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id SERIAL PRIMARY KEY,
+  order_number VARCHAR(32) NOT NULL UNIQUE,
+  quote_id INT NOT NULL UNIQUE REFERENCES quotes(id) ON DELETE RESTRICT,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status VARCHAR(32) NOT NULL DEFAULT 'received',
+  subtotal_ht NUMERIC(12, 4) NOT NULL DEFAULT 0,
+  shipping_ht NUMERIC(12, 4) NOT NULL DEFAULT 0,
+  total_ht NUMERIC(12, 4) NOT NULL DEFAULT 0,
+  subtotal_cdf NUMERIC(14, 2),
+  shipping_cdf NUMERIC(14, 2),
+  total_cdf NUMERIC(14, 2),
+  subtotal_usd NUMERIC(12, 4),
+  shipping_usd NUMERIC(12, 4),
+  total_usd NUMERIC(12, 4),
+  eur_to_cdf NUMERIC(10, 4),
+  eur_to_usd NUMERIC(10, 4),
+  shipping_rule_name VARCHAR(255),
+  customer_snapshot JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+
+CREATE TABLE IF NOT EXISTS order_lines (
+  id SERIAL PRIMARY KEY,
+  order_id INT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  reference_id INT REFERENCES references_sku(id) ON DELETE SET NULL,
+  sku_code VARCHAR(20) NOT NULL,
+  internal_code VARCHAR(30),
+  ref_pro VARCHAR(100),
+  product_name VARCHAR(500),
+  variant_label VARCHAR(500),
+  diameter VARCHAR(100),
+  qty INT NOT NULL,
+  unit_price_ht NUMERIC(12, 4),
+  unit_price_cdf NUMERIC(14, 2),
+  unit_price_usd NUMERIC(12, 4),
+  line_total_ht NUMERIC(12, 4),
+  line_total_cdf NUMERIC(14, 2),
+  line_total_usd NUMERIC(12, 4),
+  price_on_quote BOOLEAN NOT NULL DEFAULT false,
+  sort_order INT
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_lines_order ON order_lines(order_id);
 `;
 
 async function migrate() {
