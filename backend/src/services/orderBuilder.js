@@ -61,7 +61,7 @@ export async function createOrderFromQuote(quoteId, userId, db) {
        subtotal_cdf, shipping_cdf, total_cdf,
        subtotal_usd, shipping_usd, total_usd,
        eur_to_cdf, eur_to_usd, shipping_rule_name, customer_snapshot
-     ) VALUES ($1,$2,$3,'received',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+     ) VALUES ($1,$2,$3,'pending_payment',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      RETURNING *`,
     [
       orderNumber,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pencil, Trash2, Package, Save, Plus } from 'lucide-react';
 import { api, imageUrl } from '../../api.js';
 
@@ -44,6 +44,80 @@ function refToRow(r, index) {
     image_protected: !!r.image_edited_manually,
     sort_order: r.sort_order ?? index + 1,
   };
+}
+
+function PhotoField({ value, onChange, compact = false }) {
+  const inputRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    try {
+      const { image_path } = await api.uploadProductImage(file);
+      onChange(image_path);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const thumbClass = compact
+    ? 'flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-surface'
+    : 'flex h-[38px] w-[38px] shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-surface';
+
+  return (
+    <div className="flex items-start gap-2">
+      <div className={thumbClass}>
+        {imageUrl(value) ? (
+          <img src={imageUrl(value)} alt="" className="h-full w-full object-contain" />
+        ) : (
+          <Package className={compact ? 'h-4 w-4 text-gray-300' : 'h-4 w-4 text-gray-300'} />
+        )}
+      </div>
+      <div className={compact ? 'min-w-[150px]' : 'min-w-0 flex-1'}>
+        <input
+          className={
+            compact
+              ? 'w-full rounded border border-border px-2 py-1 font-mono'
+              : 'w-full rounded border border-border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-brand/30'
+          }
+          placeholder="/uploads/p0235_05.png"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className="hidden"
+            onChange={onFile}
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => inputRef.current?.click()}
+            className="text-[10px] font-semibold text-brand hover:underline disabled:opacity-50"
+          >
+            {busy ? 'Envoi…' : 'Choisir une photo'}
+          </button>
+          {value && (
+            <button
+              type="button"
+              onClick={() => onChange('')}
+              className="text-[10px] font-semibold text-muted hover:text-red-600"
+            >
+              Retirer la photo
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function rowToPayload(row, productId) {
@@ -356,35 +430,11 @@ export default function AdminProducts() {
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
                     Photo principale
                   </span>
-                  <div className="mt-1 flex items-start gap-2">
-                    <div className="flex h-[38px] w-[38px] shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-surface">
-                      {imageUrl(form.image_path) ? (
-                        <img
-                          src={imageUrl(form.image_path)}
-                          alt=""
-                          className="h-full w-full object-contain"
-                        />
-                      ) : (
-                        <Package className="h-4 w-4 text-gray-300" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <input
-                        className="w-full rounded border border-border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-brand/30"
-                        placeholder="/uploads/p0235_05.png"
-                        value={form.image_path}
-                        onChange={(e) => setForm({ ...form, image_path: e.target.value })}
-                      />
-                      {form.image_path && (
-                        <button
-                          type="button"
-                          onClick={() => setForm({ ...form, image_path: '' })}
-                          className="mt-1 text-[10px] font-semibold text-muted hover:text-red-600"
-                        >
-                          Retirer la photo
-                        </button>
-                      )}
-                    </div>
+                  <div className="mt-1">
+                    <PhotoField
+                      value={form.image_path}
+                      onChange={(image_path) => setForm({ ...form, image_path })}
+                    />
                   </div>
                 </div>
                 <label className="block">
@@ -474,47 +524,22 @@ export default function AdminProducts() {
                         {refRows.map((row, index) => (
                           <tr key={row.id || `new-${index}`} className="border-t border-border">
                             <td className="px-2 py-1.5">
-                              <div className="flex items-start gap-2">
-                                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-surface">
-                                  {imageUrl(row.image_path) ? (
-                                    <img
-                                      src={imageUrl(row.image_path)}
-                                      alt=""
-                                      className="h-full w-full object-contain"
-                                    />
-                                  ) : (
-                                    <Package className="h-4 w-4 text-gray-300" />
-                                  )}
-                                </div>
-                                <div className="min-w-[150px]">
-                                  <input
-                                    className="w-full rounded border border-border px-2 py-1 font-mono"
-                                    placeholder="/uploads/p0235_05.png"
-                                    value={row.image_path}
-                                    onChange={(e) =>
-                                      updateRefRow(index, 'image_path', e.target.value)
-                                    }
-                                  />
-                                  <div className="mt-1 flex items-center gap-2">
-                                    {row.image_path && (
-                                      <button
-                                        type="button"
-                                        onClick={() => updateRefRow(index, 'image_path', '')}
-                                        className="text-[10px] font-semibold text-muted hover:text-red-600"
-                                      >
-                                        Retirer la photo
-                                      </button>
-                                    )}
-                                    {row.image_protected && (
-                                      <span
-                                        className="text-[10px] font-semibold text-brand"
-                                        title="Photo choisie à la main : l'import du catalogue ne l'écrasera pas"
-                                      >
-                                        protégée
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
+                              <div>
+                                <PhotoField
+                                  compact
+                                  value={row.image_path}
+                                  onChange={(image_path) =>
+                                    updateRefRow(index, 'image_path', image_path)
+                                  }
+                                />
+                                {row.image_protected && (
+                                  <span
+                                    className="mt-1 inline-block text-[10px] font-semibold text-brand"
+                                    title="Photo choisie à la main : l'import du catalogue ne l'écrasera pas"
+                                  >
+                                    protégée
+                                  </span>
+                                )}
                               </div>
                             </td>
                             <td className="px-2 py-1.5">

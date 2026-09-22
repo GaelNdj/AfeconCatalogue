@@ -11,6 +11,7 @@ export default function ProductPage() {
   const [product, setProduct] = useState(null);
   const [qtys, setQtys] = useState({});
   const [pendingTotal, setPendingTotal] = useState({ count: 0, sumCdf: 0, sumUsd: 0 });
+  const [addedNotice, setAddedNotice] = useState(false);
 
   useEffect(() => {
     api.getProduct(id).then(setProduct).catch(console.error);
@@ -68,6 +69,10 @@ export default function ProductPage() {
     setQtys((prev) => ({ ...prev, [code]: n }));
   }
 
+  function markAdded() {
+    setAddedNotice(true);
+  }
+
   function addOne(ref) {
     if (isQuotePrice(ref)) return;
     const q = qtys[ref.code] || 0;
@@ -79,16 +84,22 @@ export default function ProductPage() {
       addItem(ref, q, product.name);
       setQty(ref.code, 0);
     }
+    markAdded();
   }
 
   function addAll() {
     if (!product) return;
+    let added = false;
     for (const r of product.references) {
       if (isQuotePrice(r)) continue;
       const q = qtys[r.code] || 0;
-      if (q > 0) addItem(r, q, product.name);
+      if (q > 0) {
+        addItem(r, q, product.name);
+        added = true;
+      }
     }
     setQtys({});
+    if (added) markAdded();
   }
 
   if (!product) {
@@ -326,38 +337,63 @@ export default function ProductPage() {
       </div>
 
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border/80 bg-white/95 shadow-[0_-8px_30px_rgb(15_23_42_/0.08)] backdrop-blur-md">
-        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
-          <div className="text-sm">
-            <span className="text-muted">Sélection en cours : </span>
-            <span className="inline-flex flex-wrap items-baseline gap-x-1.5 font-semibold text-ink">
-              <span>
-                {pendingTotal.count} article{pendingTotal.count !== 1 ? 's' : ''} ·{' '}
-                {formatCdf(pendingTotal.sumCdf)}
+        <div className="mx-auto max-w-[1440px] px-4 py-4 sm:px-6">
+          {addedNotice && count > 0 && (
+            <p className="mb-3 text-center text-sm font-medium text-brand sm:text-left">
+              Article ajouté au panier.
+            </p>
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm">
+              <span className="text-muted">Sélection en cours : </span>
+              <span className="inline-flex flex-wrap items-baseline gap-x-1.5 font-semibold text-ink">
+                <span>
+                  {pendingTotal.count} article{pendingTotal.count !== 1 ? 's' : ''} ·{' '}
+                  {formatCdf(pendingTotal.sumCdf)}
+                </span>
+                {pendingTotal.sumUsd > 0 && (
+                  <span className="text-[11px] font-medium text-muted">
+                    {formatUsd(pendingTotal.sumUsd)}
+                  </span>
+                )}
               </span>
-              {pendingTotal.sumUsd > 0 && (
-                <span className="text-[11px] font-medium text-muted">
-                  {formatUsd(pendingTotal.sumUsd)}
+              {count > 0 && (
+                <span className="ml-3 inline-flex flex-wrap items-baseline gap-x-1 text-xs text-muted">
+                  <span>(panier : {count} · {formatCdf(total_cdf)}</span>
+                  {total_usd > 0 && (
+                    <span className="text-[10px]">{formatUsd(total_usd)}</span>
+                  )}
+                  <span>)</span>
                 </span>
               )}
-            </span>
-            {count > 0 && (
-              <span className="ml-3 inline-flex flex-wrap items-baseline gap-x-1 text-xs text-muted">
-                <span>(panier : {count} · {formatCdf(total_cdf)}</span>
-                {total_usd > 0 && (
-                  <span className="text-[10px]">{formatUsd(total_usd)}</span>
-                )}
-                <span>)</span>
-              </span>
-            )}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {count > 0 && (
+                <>
+                  <Link
+                    to="/"
+                    className="rounded-full border border-border px-5 py-2.5 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand"
+                  >
+                    Continuer mes achats
+                  </Link>
+                  <Link
+                    to="/panier"
+                    className="rounded-full border border-brand/30 bg-brand-soft px-5 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/10"
+                  >
+                    Voir mon panier
+                  </Link>
+                </>
+              )}
+              <button
+                type="button"
+                disabled={pendingTotal.count === 0}
+                onClick={addAll}
+                className="rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-40"
+              >
+                Tout ajouter au panier
+              </button>
+            </div>
           </div>
-          <button
-            type="button"
-            disabled={pendingTotal.count === 0}
-            onClick={addAll}
-            className="rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-40"
-          >
-            Tout ajouter au panier
-          </button>
         </div>
       </div>
     </div>

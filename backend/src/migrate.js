@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS contact_inquiries (
 
 CREATE INDEX IF NOT EXISTS idx_contact_inquiries_created ON contact_inquiries(created_at DESC);
 
+ALTER TABLE contact_inquiries ADD COLUMN IF NOT EXISTS photo_paths TEXT;
+
 -- Prix catalogue vs prix vente (marge)
 ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS price_catalog_ht NUMERIC(12, 4);
 ALTER TABLE references_sku ADD COLUMN IF NOT EXISTS price_sale_ht NUMERIC(12, 4);
@@ -170,9 +172,12 @@ CREATE TABLE IF NOT EXISTS users (
   phone VARCHAR(50),
   address_line TEXT,
   city VARCHAR(100),
+  contact_name VARCHAR(200),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_name VARCHAR(200);
 
 CREATE TABLE IF NOT EXISTS user_sessions (
   id VARCHAR(64) PRIMARY KEY,
@@ -283,6 +288,27 @@ CREATE TABLE IF NOT EXISTS order_lines (
 );
 
 CREATE INDEX IF NOT EXISTS idx_order_lines_order ON order_lines(order_id);
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(32) NOT NULL DEFAULT 'pending';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS stripe_checkout_session_id VARCHAR(255);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS stripe_payment_intent_id VARCHAR(255);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+
+UPDATE orders
+SET payment_status = 'paid', paid_at = COALESCE(paid_at, created_at)
+WHERE payment_status = 'pending' AND status = 'received' AND stripe_checkout_session_id IS NULL;
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash VARCHAR(64) NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_expires ON password_reset_tokens(expires_at);
 `;
 
 async function migrate() {

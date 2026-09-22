@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Lock } from 'lucide-react';
+import PasswordInput from './PasswordInput.jsx';
 import { api, getAdminKey, setAdminKey, clearAdminKey } from '../api.js';
 
 export default function AdminGate({ children }) {
@@ -42,8 +43,7 @@ export default function AdminGate({ children }) {
         <code className="text-xs">backend/.env</code>).
       </p>
       <form onSubmit={onSubmit} className="mt-6 space-y-3">
-        <input
-          type="password"
+        <PasswordInput
           className="w-full rounded-lg border border-border px-3 py-2.5 text-sm outline-none focus:border-brand/40 focus:ring-2 focus:ring-brand/10"
           placeholder="Clé admin"
           value={input}

@@ -1,17 +1,9 @@
-import nodemailer from 'nodemailer';
-
-function buildTransporter() {
-  const host = process.env.SMTP_HOST;
-  if (!host) return null;
-  return nodemailer.createTransport({
-    host,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: process.env.SMTP_USER
-      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-      : undefined,
-  });
-}
+import {
+  adminNotificationEmail,
+  buildTransporter,
+  isSmtpConfigured,
+  smtpFrom,
+} from './mailTransporter.js';
 
 function fmtCdf(n) {
   if (n == null) return '—';
@@ -23,13 +15,72 @@ function fmtUsd(n) {
   return ` (${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(n))})`;
 }
 
-function ordersToEmail() {
-  return process.env.ORDERS_TO_EMAIL || process.env.CONTACT_TO_EMAIL || null;
+export { isSmtpConfigured };
+
+export async function sendWelcomeEmail({ email, companyName }) {
+  const transporter = buildTransporter();
+  if (!transporter) {
+    console.warn('[auth] SMTP non configuré — e-mail de bienvenue non envoyé');
+    return { sent: false };
+  }
+  try {
+    await transporter.sendMail({
+      from: smtpFrom(),
+      to: email,
+      subject: '[AfeconCatalogue] Bienvenue sur votre espace client',
+      text: [
+        `Bonjour${companyName ? ` ${companyName}` : ''},`,
+        '',
+        'Votre compte AfeconCatalogue a bien été créé.',
+        'Vous pouvez dès maintenant parcourir le catalogue, demander un devis et passer commande.',
+        '',
+        'À bientôt sur le catalogue.',
+        '',
+        '— L’équipe AfeconCatalogue',
+      ].join('\n'),
+    });
+    return { sent: true };
+  } catch (err) {
+    console.error('[auth] E-mail de bienvenue échoué:', err.message);
+    return { sent: false, error: err.message };
+  }
 }
 
-function smtpFrom() {
-  const to = ordersToEmail();
-  return process.env.SMTP_FROM || `"AfeconCatalogue" <${process.env.SMTP_USER || to}>`;
+export async function sendPasswordResetEmail({ email, resetUrl }) {
+  const transporter = buildTransporter();
+  if (!transporter) {
+    throw Object.assign(new Error('Envoi e-mail non configuré (SMTP_HOST)'), { status: 503 });
+  }
+  await transporter.sendMail({
+    from: smtpFrom(),
+    to: email,
+    subject: '[AfeconCatalogue] Réinitialisation de votre mot de passe',
+    text: [
+      'Vous avez demandé à réinitialiser votre mot de passe.',
+      '',
+      'Cliquez sur le lien ci-dessous (valable 1 heure) :',
+      resetUrl,
+      '',
+      'Si vous n’êtes pas à l’origine de cette demande, ignorez ce message.',
+      '',
+      '— AfeconCatalogue',
+    ].join('\n'),
+  });
+  return { sent: true };
+}
+
+export async function sendContactInquiryEmail({ toEmail, replyTo, subject, text, attachments }) {
+  const transporter = buildTransporter();
+  if (!transporter) return { sent: false };
+  await transporter.sendMail({
+    from: smtpFrom(),
+    to: toEmail,
+    replyTo,
+    subject,
+    text,
+    attachments: attachments?.length ? attachments : undefined,
+  });
+  return { sent: true };
 }
 
 export async function sendOrderConfirmationEmails({ order, quote, customerEmail }) {
@@ -41,7 +92,7 @@ export async function sendOrderConfirmationEmails({ order, quote, customerEmail 
 
   const snap = order.customer_snapshot || {};
   const totalLine = `${fmtCdf(order.total_cdf)}${fmtUsd(order.total_usd)}`;
-  const adminTo = ordersToEmail();
+  const adminTo = adminNotificationEmail();
 
   const common = [
     `Commande : ${order.order_number}`,
@@ -72,7 +123,7 @@ export async function sendOrderConfirmationEmails({ order, quote, customerEmail 
         to: customerEmail,
         subject: `[AfeconCatalogue] Confirmation commande ${order.order_number}`,
         text: [
-          'Votre commande a bien été enregistrée.',
+          'Votre commande a bien été enregistrée et payée.',
           '',
           common,
           '',

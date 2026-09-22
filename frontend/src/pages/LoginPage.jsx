@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import PasswordInput from '../components/PasswordInput.jsx';
 
 const inputClass =
   'w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm outline-none transition focus:border-brand/40 focus:ring-4 focus:ring-brand/10';
@@ -54,9 +55,16 @@ export default function LoginPage() {
           />
         </label>
         <label className="block">
-          <span className="text-sm font-medium text-ink">Mot de passe</span>
-          <input
-            type="password"
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-ink">Mot de passe</span>
+            <Link
+              to="/mot-de-passe/oublie"
+              className="text-xs font-medium text-brand hover:underline"
+            >
+              Mot de passe oublié ?
+            </Link>
+          </div>
+          <PasswordInput
             required
             autoComplete="current-password"
             className={`mt-1.5 ${inputClass}`}

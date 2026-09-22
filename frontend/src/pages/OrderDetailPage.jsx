@@ -1,14 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { CheckCircle2, Download, Package } from 'lucide-react';
+import { CheckCircle2, CreditCard, Download, Package } from 'lucide-react';
 import { api } from '../api.js';
 import PriceDisplay from '../components/PriceDisplay.jsx';
 import RequireAuth from '../components/RequireAuth.jsx';
 
 const STATUS_LABELS = {
+  pending_payment: 'En attente de paiement',
   received: 'Reçue',
   preparing: 'En préparation',
   shipped: 'Expédiée',
+};
+
+const PAYMENT_LABELS = {
+  pending: 'Paiement en attente',
+  paid: 'Payée',
+  failed: 'Paiement échoué',
 };
 
 function OrderDetailInner() {
@@ -61,12 +68,20 @@ function OrderDetailInner() {
           <CheckCircle2 className="h-6 w-6" />
         </div>
         <div>
-          <h1 className="font-display text-2xl font-bold text-ink">Commande confirmée</h1>
+          <h1 className="font-display text-2xl font-bold text-ink">
+            {order.payment_status === 'paid' ? 'Commande confirmée' : 'Commande enregistrée'}
+          </h1>
           <p className="text-sm text-muted">
             {order.order_number} · {new Date(order.created_at).toLocaleString('fr-FR')}
           </p>
           <p className="mt-1 text-sm font-medium text-brand-dark">
             {STATUS_LABELS[order.status] || order.status}
+            {order.payment_status && (
+              <span className="text-muted">
+                {' '}
+                · {PAYMENT_LABELS[order.payment_status] || order.payment_status}
+              </span>
+            )}
           </p>
         </div>
       </div>
@@ -141,11 +156,20 @@ function OrderDetailInner() {
       </div>
 
       <div className="mt-6 flex flex-wrap gap-3">
+        {order.payment_status !== 'paid' && (
+          <Link
+            to={`/compte/commande/${order.id}/paiement`}
+            className="inline-flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
+          >
+            <CreditCard className="h-4 w-4" />
+            Procéder au paiement
+          </Link>
+        )}
         <button
           type="button"
           onClick={downloadPdf}
           disabled={pdfBusy}
-          className="inline-flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-2.5 text-sm font-semibold text-ink hover:bg-surface disabled:opacity-60"
         >
           <Download className="h-4 w-4" />
           {pdfBusy ? 'Téléchargement…' : 'Télécharger le PDF'}

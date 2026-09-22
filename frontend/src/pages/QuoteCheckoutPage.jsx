@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FileCheck, Truck } from 'lucide-react';
-import { api, eurToCdf, eurToUsd, formatCdf } from '../api.js';
+import { api, eurToCdf, eurToUsd } from '../api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useCart } from '../context/CartContext.jsx';
 import PriceDisplay from '../components/PriceDisplay.jsx';
@@ -10,7 +10,22 @@ import RequireAuth from '../components/RequireAuth.jsx';
 const inputClass =
   'w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm outline-none transition focus:border-brand/40 focus:ring-4 focus:ring-brand/10';
 
-function QuoteCheckoutInner() {
+function cartBlocksOnlineOrder(items) {
+  return items.some((i) => i.price_source === 'quote' || !(Number(i.price_eur_ht) > 0));
+}
+
+function buildQuotePayload(items, profile) {
+  return {
+    items: items.map((i) => ({
+      code: i.supplier_code || i.code,
+      qty: i.qty,
+    })),
+    ...profile,
+  };
+}
+
+function CartCheckoutInner({ mode }) {
+  const isOrder = mode === 'order';
   const { user } = useAuth();
   const { items, total_cdf, total_usd, total_eur, clear } = useCart();
   const navigate = useNavigate();
@@ -23,6 +38,8 @@ function QuoteCheckoutInner() {
   });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const orderBlocked = isOrder && cartBlocksOnlineOrder(items);
 
   useEffect(() => {
     if (user) {
@@ -47,23 +64,24 @@ function QuoteCheckoutInner() {
   const shippingUsd = shipping?.free_shipping ? 0 : eurToUsd(shipping?.fee_ht ?? 0);
   const grandTotalCdf = total_cdf + shippingCdf;
 
-  async function submitQuote(e) {
+  async function onSubmit(e) {
     e.preventDefault();
+    if (orderBlocked) return;
     setError('');
     setBusy(true);
     try {
-      const payload = {
-        items: items.map((i) => ({
-          code: i.supplier_code || i.code,
-          qty: i.qty,
-        })),
-        ...profile,
-      };
+      const payload = buildQuotePayload(items, profile);
       const res = await api.createQuote(payload);
-      clear();
-      navigate(`/compte/devis/${res.quote.id}`, { replace: true });
+      if (isOrder) {
+        const orderRes = await api.createOrder({ quote_id: res.quote.id });
+        clear();
+        navigate(`/compte/commande/${orderRes.order.id}/paiement`, { replace: true });
+      } else {
+        clear();
+        navigate(`/compte/devis/${res.quote.id}`, { replace: true });
+      }
     } catch (err) {
-      setError(err.message || 'Impossible de créer le devis');
+      setError(err.message || (isOrder ? 'Impossible de valider la commande' : 'Impossible de créer le devis'));
     } finally {
       setBusy(false);
     }
@@ -82,9 +100,13 @@ function QuoteCheckoutInner() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-      <h1 className="font-display text-3xl font-bold text-ink">Demander un devis</h1>
+      <h1 className="font-display text-3xl font-bold text-ink">
+        {isOrder ? 'Finaliser ma commande' : 'Enregistrer un devis'}
+      </h1>
       <p className="mt-1 text-sm text-muted">
-        Les prix seront recalculés et figés à la validation.
+        {isOrder
+          ? 'Vérifiez vos coordonnées. Le paiement s’effectuera à l’étape suivante.'
+          : 'Les montants catalogue seront figés pour votre dossier (PDF, validation interne).'}
       </p>
 
       <div className="card mt-6 divide-y divide-border">
@@ -113,7 +135,17 @@ function QuoteCheckoutInner() {
         </div>
       </div>
 
-      <form onSubmit={submitQuote} className="card mt-4 space-y-4 p-5">
+      {orderBlocked && (
+        <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Certaines lignes sont « sur devis » : la commande en ligne n’est pas disponible. Utilisez{' '}
+          <Link to="/panier/devis" className="font-medium text-brand hover:underline">
+            Enregistrer un devis
+          </Link>{' '}
+          ou retirez ces articles du panier.
+        </p>
+      )}
+
+      <form onSubmit={onSubmit} className="card mt-4 space-y-4 p-5">
         <div className="flex items-center gap-2 font-semibold text-ink">
           <FileCheck className="h-4 w-4 text-brand" />
           Vos coordonnées
@@ -158,11 +190,34 @@ function QuoteCheckoutInner() {
         </label>
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || orderBlocked}
           className="w-full rounded-full bg-brand py-3 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
         >
-          {busy ? 'Création du devis…' : 'Valider ma demande de devis'}
+          {busy
+            ? isOrder
+              ? 'Validation…'
+              : 'Création du devis…'
+            : isOrder
+              ? 'Valider ma commande'
+              : 'Enregistrer mon devis'}
         </button>
+        <p className="text-center text-xs text-muted">
+          {isOrder ? (
+            <>
+              Besoin d’un document pour validation interne ?{' '}
+              <Link to="/panier/devis" className="text-brand hover:underline">
+                Enregistrer un devis
+              </Link>
+            </>
+          ) : (
+            <>
+              Prêt à commander ?{' '}
+              <Link to="/panier/commande" className="text-brand hover:underline">
+                Finaliser ma commande
+              </Link>
+            </>
+          )}
+        </p>
       </form>
     </div>
   );
@@ -171,7 +226,15 @@ function QuoteCheckoutInner() {
 export default function QuoteCheckoutPage() {
   return (
     <RequireAuth>
-      <QuoteCheckoutInner />
+      <CartCheckoutInner mode="quote" />
+    </RequireAuth>
+  );
+}
+
+export function OrderCheckoutPage() {
+  return (
+    <RequireAuth>
+      <CartCheckoutInner mode="order" />
     </RequireAuth>
   );
 }

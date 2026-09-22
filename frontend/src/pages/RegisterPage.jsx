@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import PasswordInput from '../components/PasswordInput.jsx';
 
 const inputClass =
   'w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm outline-none transition focus:border-brand/40 focus:ring-4 focus:ring-brand/10';
@@ -64,8 +65,7 @@ export default function RegisterPage() {
         </label>
         <label className="block">
           <span className="text-sm font-medium text-ink">Mot de passe <span className="text-accent">*</span></span>
-          <input
-            type="password"
+          <PasswordInput
             required
             minLength={8}
             className={`mt-1.5 ${inputClass}`}

@@ -172,7 +172,7 @@ EUR_TO_USD=1.08
 | Helmet (headers HTTP) | ✅ |
 | Checkout / paiement sécurisé | 🔜 Roadmap |
 
-L’admin web demande la clé au premier accès (`/admin`) — elle est stockée en `sessionStorage` pour la session.
+Le back-office n’est pas lié depuis le header catalogue. Accès direct : **`/gestion-afeconcatalogue`** (ex. `http://localhost:5173/gestion-afeconcatalogue`). Au premier accès, saisir la clé **`ADMIN_API_KEY`** définie dans `backend/.env` — elle est stockée en `sessionStorage` pour la session navigateur. La protection réelle repose sur le header API **`X-Admin-Key`**, pas sur l’URL seule.
 
 ## Contact « pièce introuvable »
 

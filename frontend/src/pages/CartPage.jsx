@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { FileText, ShoppingBag, Trash2, Truck } from 'lucide-react';
+import { FileText, ShoppingBag, Trash2, Truck, ShoppingCart } from 'lucide-react';
 import { api, formatCdf, eurToCdf, eurToUsd } from '../api.js';
 import { useCart } from '../context/CartContext.jsx';
 import PriceDisplay from '../components/PriceDisplay.jsx';
@@ -24,6 +24,9 @@ export default function CartPage() {
   const shippingUsd = shipping?.free_shipping ? 0 : eurToUsd(shipping?.fee_ht ?? 0);
   const grandTotalCdf = total_cdf + shippingCdf;
   const grandTotalUsd = total_usd + shippingUsd;
+  const orderBlocked = items.some(
+    (i) => i.price_source === 'quote' || !(Number(i.price_eur_ht) > 0)
+  );
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
@@ -123,13 +126,42 @@ export default function CartPage() {
               <Trash2 className="h-4 w-4" />
               Vider le panier
             </button>
-            <Link
-              to="/panier/devis"
-              className="inline-flex items-center gap-2 rounded-full bg-brand px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-dark"
-            >
-              <FileText className="h-4 w-4" />
-              Demander un devis
-            </Link>
+            <div className="flex max-w-full flex-col items-stretch gap-3 sm:items-end">
+              {orderBlocked && (
+                <p className="text-right text-xs text-amber-800">
+                  Lignes « sur devis » : commande en ligne indisponible — utilisez l’enregistrement de devis.
+                </p>
+              )}
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                <Link
+                  to="/"
+                  className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand"
+                >
+                  <ShoppingBag className="h-4 w-4" />
+                  Continuer mes achats
+                </Link>
+                <Link
+                  to="/panier/devis"
+                  className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand"
+                >
+                  <FileText className="h-4 w-4" />
+                  Enregistrer un devis
+                </Link>
+                <Link
+                  to="/panier/commande"
+                  aria-disabled={orderBlocked}
+                  className={`inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-white transition ${
+                    orderBlocked
+                      ? 'pointer-events-none bg-brand/40'
+                      : 'bg-brand hover:bg-brand-dark'
+                  }`}
+                  onClick={orderBlocked ? (e) => e.preventDefault() : undefined}
+                >
+                  <ShoppingCart className="h-4 w-4" />
+                  Finaliser ma commande
+                </Link>
+              </div>
+            </div>
           </div>
         </>
       )}

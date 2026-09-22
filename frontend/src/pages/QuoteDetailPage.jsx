@@ -43,7 +43,7 @@ function QuoteDetailInner() {
     setError('');
     try {
       const r = await api.createOrder({ quote_id: Number(id) });
-      navigate(`/compte/commande/${r.order.id}`);
+      navigate(`/compte/commande/${r.order.id}/paiement`);
     } catch (e) {
       setError(e.message);
     } finally {

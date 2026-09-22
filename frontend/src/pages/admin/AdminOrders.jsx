@@ -2,10 +2,17 @@ import { useEffect, useState } from 'react';
 import { api, formatCdf, formatUsd } from '../../api.js';
 
 const STATUS_OPTIONS = [
-  { value: 'received', label: 'Reçue' },
+  { value: 'pending_payment', label: 'En attente de paiement' },
+  { value: 'received', label: 'Reçue (payée)' },
   { value: 'preparing', label: 'En préparation' },
   { value: 'shipped', label: 'Expédiée' },
 ];
+
+const PAYMENT_LABELS = {
+  pending: 'En attente',
+  paid: 'Payée',
+  failed: 'Échoué',
+};
 
 export default function AdminOrders() {
   const [items, setItems] = useState([]);
@@ -57,6 +64,7 @@ export default function AdminOrders() {
                 <th className="px-4 py-3">Devis</th>
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3 text-right">Total</th>
+                <th className="px-4 py-3">Paiement</th>
                 <th className="px-4 py-3">Statut</th>
               </tr>
             </thead>
@@ -77,6 +85,9 @@ export default function AdminOrders() {
                     {o.total_usd != null && (
                       <div className="text-xs text-muted">{formatUsd(o.total_usd)}</div>
                     )}
+                  </td>
+                  <td className="px-4 py-3 text-muted">
+                    {PAYMENT_LABELS[o.payment_status] || o.payment_status || '—'}
                   </td>
                   <td className="px-4 py-3">
                     <select

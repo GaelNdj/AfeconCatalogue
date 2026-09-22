@@ -10,3 +10,4 @@ coverage/
 .vite/
 backend/uploads/*
 !backend/uploads/.gitkeep
+backend/private/

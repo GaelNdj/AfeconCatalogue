@@ -4,11 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/index.js",
+    "dev": "node --watch-path=.env --watch src/index.js",
     "start": "node src/index.js",
     "migrate": "node src/migrate.js",
     "seed": "node src/seed.js",
-    "cleanup:plomberie": "node src/cleanup-non-plomberie.js"
+    "cleanup:plomberie": "node src/cleanup-non-plomberie.js",
+    "generate:affiche": "node scripts/generate-affiche-gestion.js",
+    "prepare:logo:drc": "node scripts/prepare-concept-fp-logo.js",
+    "generate:flyer:drc": "node scripts/generate-flyer-a5-drc.js",
+    "test:smtp": "node scripts/test-smtp.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
@@ -21,6 +25,8 @@
     "nodemailer": "^9.1.1",
     "pdfkit": "^0.20.2",
     "pg": "^8.13.3",
+    "sharp": "^0.35.4",
+    "stripe": "^22.6.2",
     "xlsx": "^0.18.5"
   }
 }

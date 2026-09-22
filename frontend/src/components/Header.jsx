@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Search, ShoppingCart, Settings2, MessageCircle, User } from 'lucide-react';
+import { Search, ShoppingCart, MessageCircle, User, LogOut } from 'lucide-react';
 import { useCart } from '../context/CartContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -8,7 +8,7 @@ export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const { count } = useCart();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   const [q, setQ] = useState(() => {
     const params = new URLSearchParams(location.search);
     return params.get('q') || '';
@@ -59,15 +59,36 @@ export default function Header() {
             <MessageCircle className="h-4 w-4 text-brand" />
             <span className="hidden lg:inline">Pièce introuvable ?</span>
           </Link>
-          {!authLoading && (
+          {!authLoading && !user && (
             <Link
-              to={user ? '/compte' : '/connexion'}
+              to="/connexion"
               className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-3 py-2 text-sm font-medium text-ink-soft transition hover:border-brand/30 hover:bg-brand-soft/50 sm:px-4"
-              title={user ? 'Mon compte' : 'Connexion'}
+              title="Connexion"
             >
               <User className="h-4 w-4 text-brand" />
-              <span className="hidden md:inline">{user ? 'Compte' : 'Connexion'}</span>
+              <span className="hidden md:inline">Connexion</span>
             </Link>
+          )}
+          {!authLoading && user && (
+            <>
+              <Link
+                to="/compte"
+                className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-3 py-2 text-sm font-medium text-ink-soft transition hover:border-brand/30 hover:bg-brand-soft/50 sm:px-4"
+                title="Mon compte"
+              >
+                <User className="h-4 w-4 text-brand" />
+                <span className="hidden md:inline">Compte</span>
+              </Link>
+              <button
+                type="button"
+                onClick={() => logout().then(() => navigate('/'))}
+                className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-3 py-2 text-sm font-medium text-ink-soft transition hover:border-red-200 hover:text-red-600 sm:px-4"
+                title="Déconnexion"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden md:inline">Déconnexion</span>
+              </button>
+            </>
           )}
           <Link
             to="/panier"
@@ -80,14 +101,6 @@ export default function Header() {
                 {count}
               </span>
             )}
-          </Link>
-          <Link
-            to="/admin"
-            className="inline-flex items-center gap-1.5 rounded-full bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-ink-soft"
-            title="Administration"
-          >
-            <Settings2 className="h-4 w-4" />
-            <span className="hidden sm:inline">Admin</span>
           </Link>
         </div>
       </div>

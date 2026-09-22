@@ -82,6 +82,11 @@ export const api = {
       body: JSON.stringify(body),
     }),
   deleteProduct: (id) => adminRequest(`/api/products/${id}`, { method: 'DELETE' }),
+  uploadProductImage: (file) => {
+    const fd = new FormData();
+    fd.append('image', file);
+    return adminRequest('/api/products/upload-image', { method: 'POST', body: fd });
+  },
   getReferences: (params = {}) => {
     const q = new URLSearchParams(params).toString();
     return adminRequest(`/api/references?${q}`);
@@ -131,8 +136,8 @@ export const api = {
   submitContact: (body) =>
     request('/api/contact', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: body instanceof FormData ? body : JSON.stringify(body),
+      headers: body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
     }),
   getMarginRules: () => adminRequest('/api/pricing/margin-rules'),
   createMarginRule: (body) =>
@@ -187,6 +192,19 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     }),
+  forgotPassword: (body) =>
+    request('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  resetPassword: (body) =>
+    request('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  getMailConfig: () => request('/api/config/mail'),
   updateProfile: (body) =>
     request('/api/auth/profile', {
       method: 'PUT',
@@ -210,6 +228,19 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  createOrderCheckoutSession: (orderId) =>
+    request(`/api/orders/${orderId}/checkout-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }),
+  confirmOrderPayment: (orderId, sessionId) =>
+    request(`/api/orders/${orderId}/confirm-payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    }),
+  getPaymentConfig: () => request('/api/config/payments'),
   downloadOrderPdf: (id) => downloadFile(`/api/orders/${id}/pdf`, `commande-${id}.pdf`),
   getAdminOrders: () => adminRequest('/api/admin/orders'),
   updateAdminOrderStatus: (id, status) =>

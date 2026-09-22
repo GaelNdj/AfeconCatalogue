@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { MessageCircle, Send, CheckCircle2, HelpCircle } from 'lucide-react';
+import { Camera, Send, CheckCircle2, HelpCircle, X } from 'lucide-react';
 import { api } from '../api.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const emptyForm = {
   name: '',
@@ -31,17 +32,32 @@ function Field({ label, required, children, hint }) {
 const inputClass =
   'w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm outline-none transition focus:border-brand/40 focus:ring-4 focus:ring-brand/10';
 
+const MAX_PHOTOS = 4;
+
 export default function ContactPage() {
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [form, setForm] = useState({
     ...emptyForm,
     reference: searchParams.get('ref') || '',
     part_description: searchParams.get('q') ? `Recherche : ${searchParams.get('q')}` : '',
   });
+  const [photos, setPhotos] = useState([]);
   const searchedFor = searchParams.get('q') || '';
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!user) return;
+    setForm((prev) => ({
+      ...prev,
+      name: prev.name || user.contact_name || '',
+      email: prev.email || user.email || '',
+      company: prev.company || user.company_name || '',
+      phone: prev.phone || user.phone || '',
+    }));
+  }, [user]);
 
   function set(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -53,12 +69,14 @@ export default function ContactPage() {
     setError('');
     setResult(null);
     try {
-      const res = await api.submitContact({
-        ...form,
-        searched_for: searchedFor,
-      });
+      const body = new FormData();
+      for (const [key, value] of Object.entries(form)) body.append(key, value);
+      body.append('searched_for', searchedFor);
+      for (const file of photos) body.append('photos', file);
+      const res = await api.submitContact(body);
       setResult(res);
       setForm(emptyForm);
+      setPhotos([]);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -79,8 +97,8 @@ export default function ContactPage() {
                 Vous ne trouvez pas la pièce dont vous avez besoin ?
               </h1>
               <p className="mt-2 max-w-xl text-sm leading-relaxed text-teal-50/95">
-                Pas de problème — décrivez-nous ce que vous recherchez et nous reviendrons vers
-                vous rapidement avec une proposition ou une alternative.
+                Décrivez la pièce ou joignez une photo. Réponse sous 4 h ouvrées, avec une
+                proposition ou une alternative.
               </p>
             </div>
           </div>
@@ -193,12 +211,50 @@ export default function ContactPage() {
                 </Field>
               </div>
 
+              <Field
+                label="Photos de la pièce"
+                hint="Plaque signalétique ou pièce cassée — appareil photo ou galerie. JPG, PNG, WEBP, HEIC. 4 photos max, 4 Mo chacune."
+              >
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
+                  multiple
+                  className="block w-full text-sm text-muted file:mr-3 file:rounded-full file:border-0 file:bg-brand-soft file:px-4 file:py-2 file:text-sm file:font-semibold file:text-brand"
+                  onChange={(e) => {
+                    const picked = Array.from(e.target.files || []);
+                    setPhotos((prev) => [...prev, ...picked].slice(0, MAX_PHOTOS));
+                    e.target.value = '';
+                  }}
+                />
+                {photos.length > 0 && (
+                  <ul className="mt-3 flex flex-wrap gap-2">
+                    {photos.map((file, index) => (
+                      <li
+                        key={`${file.name}-${file.size}-${index}`}
+                        className="inline-flex items-center gap-1 rounded-full bg-surface px-3 py-1 text-xs text-ink"
+                      >
+                        <Camera className="h-3.5 w-3.5 text-brand" />
+                        <span className="max-w-[10rem] truncate">{file.name}</span>
+                        <button
+                          type="button"
+                          className="text-muted hover:text-red-600"
+                          aria-label={`Retirer ${file.name}`}
+                          onClick={() => setPhotos((prev) => prev.filter((_, i) => i !== index))}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Field>
+
               <Field label="Message complémentaire" hint="Optionnel">
                 <textarea
                   className={`${inputClass} min-h-[80px] resize-y`}
                   value={form.message}
                   onChange={(e) => set('message', e.target.value)}
-                  placeholder="Quantité, délai souhaité, photos disponibles…"
+                  placeholder="Quantité, délai souhaité…"
                 />
               </Field>
 
@@ -208,9 +264,10 @@ export default function ContactPage() {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border pt-5">
+              <div className="sticky bottom-0 z-10 -mx-6 flex flex-wrap items-center justify-between gap-4 border-t border-border bg-white/95 px-6 py-4 backdrop-blur sm:-mx-8 sm:px-8">
                 <p className="text-xs text-muted">
                   Les champs marqués <span className="text-accent">*</span> sont obligatoires.
+                  Réponse sous 4 h ouvrées.
                 </p>
                 <button
                   type="submit"

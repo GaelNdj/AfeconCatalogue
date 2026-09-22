@@ -4,7 +4,11 @@ import { assertSameOrigin, attachUser, requireUser } from '../middleware/userAut
 import { requireAdmin } from '../middleware/auth.js';
 import { createOrderFromQuote } from '../services/orderBuilder.js';
 import { buildOrderPdf } from '../services/documentPdf.js';
-import { sendOrderConfirmationEmails } from '../services/mail.js';
+import {
+  createOrderCheckoutSession,
+  confirmCheckoutSessionForUser,
+  isStripeConfigured,
+} from '../services/stripePayments.js';
 
 const router = Router();
 
@@ -14,7 +18,7 @@ router.use(requireUser);
 router.get('/', async (req, res, next) => {
   try {
     const r = await query(
-      `SELECT o.id, o.order_number, o.status, o.total_cdf, o.total_usd, o.created_at,
+      `SELECT o.id, o.order_number, o.status, o.payment_status, o.total_cdf, o.total_usd, o.created_at,
               q.quote_number
        FROM orders o
        JOIN quotes q ON q.id = o.quote_id
@@ -78,6 +82,31 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+router.post('/:id/checkout-session', assertSameOrigin, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID invalide' });
+    const { url, sessionId } = await createOrderCheckoutSession(id, req.user.id);
+    res.json({ url, sessionId });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    next(e);
+  }
+});
+
+router.post('/:id/confirm-payment', assertSameOrigin, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const sessionId = String(req.body?.session_id || '').trim();
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID invalide' });
+    const order = await confirmCheckoutSessionForUser(id, req.user.id, sessionId);
+    res.json({ order });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    next(e);
+  }
+});
+
 router.post('/', assertSameOrigin, async (req, res, next) => {
   const db = await pool.connect();
   try {
@@ -90,15 +119,10 @@ router.post('/', assertSameOrigin, async (req, res, next) => {
     const { order, quote } = await createOrderFromQuote(quoteId, req.user.id, db);
     await db.query('COMMIT');
 
-    const emailResult = await sendOrderConfirmationEmails({
-      order,
-      quote,
-      customerEmail: req.user.email,
-    });
-
     res.status(201).json({
       order,
-      emailSent: emailResult.clientSent || emailResult.adminSent,
+      paymentRequired: true,
+      stripeConfigured: isStripeConfigured(),
     });
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
@@ -115,7 +139,7 @@ adminRouter.use(requireAdmin);
 adminRouter.get('/', async (_req, res, next) => {
   try {
     const r = await query(
-      `SELECT o.id, o.order_number, o.status, o.total_cdf, o.total_usd, o.created_at,
+      `SELECT o.id, o.order_number, o.status, o.payment_status, o.total_cdf, o.total_usd, o.created_at,
               q.quote_number, u.email AS user_email,
               o.customer_snapshot->>'company_name' AS company_name
        FROM orders o
@@ -134,7 +158,7 @@ adminRouter.patch('/:id', async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     const status = String(req.body?.status || '').trim();
-    const allowed = ['received', 'preparing', 'shipped'];
+    const allowed = ['pending_payment', 'received', 'preparing', 'shipped'];
     if (!allowed.includes(status)) {
       return res.status(400).json({ error: 'Statut invalide' });
     }

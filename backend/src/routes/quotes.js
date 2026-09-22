@@ -12,11 +12,17 @@ router.use(requireUser);
 router.get('/', async (req, res, next) => {
   try {
     const r = await query(
-      `SELECT id, quote_number, status, subtotal_ht, shipping_ht, total_ht,
-              total_cdf, total_usd, valid_until, created_at
-       FROM quotes
-       WHERE user_id = $1
-       ORDER BY created_at DESC
+      `SELECT q.id, q.quote_number, q.status, q.subtotal_ht, q.shipping_ht, q.total_ht,
+              q.total_cdf, q.total_usd, q.valid_until, q.created_at,
+              o.id AS order_id,
+              EXISTS (
+                SELECT 1 FROM quote_lines l
+                WHERE l.quote_id = q.id AND l.price_on_quote
+              ) AS has_quote_only_lines
+       FROM quotes q
+       LEFT JOIN orders o ON o.quote_id = q.id
+       WHERE q.user_id = $1
+       ORDER BY q.created_at DESC
        LIMIT 100`,
       [req.user.id]
     );

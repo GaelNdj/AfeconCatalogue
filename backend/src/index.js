@@ -16,7 +16,9 @@ import configRouter from './routes/config.js';
 import authRouter from './routes/auth.js';
 import quotesRouter from './routes/quotes.js';
 import ordersRouter, { adminRouter as adminOrdersRouter } from './routes/orders.js';
+import paymentsRouter from './routes/payments.js';
 import { attachUser } from './middleware/userAuth.js';
+import { isSmtpConfigured } from './services/mailTransporter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env') });
@@ -40,6 +42,7 @@ app.use(
     allowedHeaders: ['Content-Type', 'X-Admin-Key'],
   })
 );
+app.use('/api/payments', express.raw({ type: 'application/json' }), paymentsRouter);
 app.use(express.json({ limit: '10mb' }));
 app.use(attachUser);
 app.use('/uploads', express.static(uploadDir));
@@ -75,6 +78,13 @@ app.use((err, _req, res, _next) => {
 
 const server = app.listen(PORT, () => {
   console.log(`AfeconCatalogue API on http://localhost:${PORT}`);
+  if (!isSmtpConfigured()) {
+    console.warn(
+      '[api] SMTP non configuré (SMTP_HOST) — les e-mails ne partiront pas. Vérifiez backend/.env puis redémarrez l’API.'
+    );
+  } else {
+    console.log('[api] SMTP configuré — envoi e-mails actif');
+  }
 });
 
 server.on('error', (err) => {

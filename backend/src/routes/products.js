@@ -1,9 +1,104 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { query } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { enrichReferencesPublic } from '../pricingLoader.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadDir = path.resolve(__dirname, '../../uploads');
+fs.mkdirSync(uploadDir, { recursive: true });
+fs.mkdirSync(path.join(uploadDir, '_tmp'), { recursive: true });
+
+const ALLOWED_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
+
+/** Prix public le plus bas par fiche (même calcul que la page produit). */
+async function attachStartingPrices(products) {
+  if (!products.length) return products;
+  const ids = products.map((p) => p.id);
+  const refs = await query(`SELECT * FROM references_sku WHERE product_id = ANY($1::int[])`, [ids]);
+  const byProduct = new Map();
+  for (const ref of refs.rows) {
+    const list = byProduct.get(ref.product_id) || [];
+    list.push(ref);
+    byProduct.set(ref.product_id, list);
+  }
+
+  const items = [];
+  for (const product of products) {
+    const enriched = await enrichReferencesPublic(byProduct.get(product.id) || [], product);
+    const priced = enriched.filter(
+      (r) => r.display_price_cdf != null && r.price_source !== 'quote' && !r.price_on_quote
+    );
+    priced.sort((a, b) => a.display_price_cdf - b.display_price_cdf);
+    const min = priced[0] || null;
+    items.push({
+      ...product,
+      price_from_cdf: min?.display_price_cdf ?? null,
+      price_from_usd: min?.display_price_usd ?? null,
+      price_from_multiple: priced.length > 1,
+      price_on_quote_only: !min && enriched.some((r) => r.price_on_quote || r.price_source === 'quote'),
+    });
+  }
+  return items;
+}
+
+const imageUpload = multer({
+  dest: path.join(uploadDir, '_tmp'),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (!ALLOWED_EXT.has(ext)) {
+      return cb(new Error('Formats acceptés : JPG, PNG, WEBP, GIF'));
+    }
+    const mime = (file.mimetype || '').toLowerCase();
+    if (mime && mime !== 'application/octet-stream' && !mime.startsWith('image/')) {
+      return cb(new Error('Formats acceptés : JPG, PNG, WEBP, GIF'));
+    }
+    cb(null, true);
+  },
+});
+
+function uniqueUploadPath(originalName) {
+  const safe = path.basename(originalName).replace(/[^a-zA-Z0-9._-]/g, '_');
+  const ext = path.extname(safe).toLowerCase() || '.jpg';
+  const base = path.basename(safe, path.extname(safe)) || 'photo';
+  let filename = `${base}${ext}`;
+  let dest = path.join(uploadDir, filename);
+  let n = 1;
+  while (fs.existsSync(dest)) {
+    filename = `${base}_${n}${ext}`;
+    dest = path.join(uploadDir, filename);
+    n += 1;
+  }
+  return { dest, publicPath: `/uploads/${filename}` };
+}
+
 const router = Router();
+
+router.post('/upload-image', requireAdmin, (req, res, next) => {
+  imageUpload.single('image')(req, res, (err) => {
+    if (err) {
+      const tooBig = err.code === 'LIMIT_FILE_SIZE';
+      return res.status(400).json({
+        error: tooBig ? 'Image trop lourde (max 8 Mo)' : err.message || 'Upload impossible',
+      });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'Fichier image requis' });
+    }
+    try {
+      const { dest, publicPath } = uniqueUploadPath(req.file.originalname);
+      fs.renameSync(req.file.path, dest);
+      res.status(201).json({ image_path: publicPath });
+    } catch (e) {
+      if (req.file?.path) fs.unlink(req.file.path, () => {});
+      next(e);
+    }
+  });
+});
 
 router.get('/', async (req, res, next) => {
   try {
@@ -77,8 +172,10 @@ router.get('/', async (req, res, next) => {
       listParams
     );
 
+    const items = await attachStartingPrices(listRes.rows);
+
     res.json({
-      items: listRes.rows,
+      items,
       page,
       limit,
       total: countRes.rows[0].total,

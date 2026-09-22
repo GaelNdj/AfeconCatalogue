@@ -2,15 +2,16 @@ import { NavLink, Outlet, Link } from 'react-router-dom';
 import { Box, GitBranch, Layers, Upload, Percent, Truck, ShoppingBag, ArrowLeft, LogOut } from 'lucide-react';
 import AdminGate from '../../components/AdminGate.jsx';
 import { clearAdminKey } from '../../api.js';
+import { adminPath } from '../../adminPaths.js';
 
 const tabs = [
-  { to: '/admin', end: true, label: 'Produits', icon: Box },
-  { to: '/admin/references', label: 'Références', icon: GitBranch },
-  { to: '/admin/familles', label: 'Familles', icon: Layers },
-  { to: '/admin/marges', label: 'Marges', icon: Percent },
-  { to: '/admin/livraison', label: 'Livraison', icon: Truck },
-  { to: '/admin/import', label: 'Import', icon: Upload },
-  { to: '/admin/commandes', label: 'Commandes', icon: ShoppingBag },
+  { to: adminPath(), end: true, label: 'Produits', icon: Box },
+  { to: adminPath('references'), label: 'Références', icon: GitBranch },
+  { to: adminPath('familles'), label: 'Familles', icon: Layers },
+  { to: adminPath('marges'), label: 'Marges', icon: Percent },
+  { to: adminPath('livraison'), label: 'Livraison', icon: Truck },
+  { to: adminPath('import'), label: 'Import', icon: Upload },
+  { to: adminPath('commandes'), label: 'Commandes', icon: ShoppingBag },
 ];
 
 export default function AdminLayout() {
