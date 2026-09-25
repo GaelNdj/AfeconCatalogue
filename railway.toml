@@ -1,0 +1,8 @@
+# https://docs.railway.com/reference/config-as-code
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm run build:deploy"
+
+[deploy]
+startCommand = "npm start"
+preDeployCommand = "npm run db:migrate"

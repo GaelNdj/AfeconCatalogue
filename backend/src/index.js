@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -27,7 +28,13 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const isProd = process.env.NODE_ENV === 'production';
 const uploadDir = path.resolve(__dirname, '..', process.env.UPLOAD_DIR || './uploads');
-const frontendOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
+const railwayHost = process.env.RAILWAY_PUBLIC_DOMAIN
+  ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+  : null;
+const frontendOrigin =
+  process.env.FRONTEND_URL?.trim() || railwayHost || 'http://localhost:5173';
+const frontendDist = path.resolve(__dirname, '../../frontend/dist');
+const serveFrontend = isProd && fs.existsSync(path.join(frontendDist, 'index.html'));
 
 app.use(
   helmet({
@@ -69,6 +76,16 @@ app.use('/api/quotes', quotesRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/admin/orders', adminOrdersRouter);
 
+if (serveFrontend) {
+  app.use(express.static(frontendDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
+    res.sendFile(path.join(frontendDist, 'index.html'), (err) => {
+      if (err) next(err);
+    });
+  });
+}
+
 app.use((err, _req, res, _next) => {
   console.error(err);
   res.status(err.status || 500).json({
@@ -78,6 +95,10 @@ app.use((err, _req, res, _next) => {
 
 const server = app.listen(PORT, () => {
   console.log(`AfeconCatalogue API on http://localhost:${PORT}`);
+  if (serveFrontend) {
+    console.log(`[api] Frontend statique servi depuis ${frontendDist}`);
+    console.log(`[api] URL publique (CORS / cookies) : ${frontendOrigin}`);
+  }
   if (!isSmtpConfigured()) {
     console.warn(
       '[api] SMTP non configuré (SMTP_HOST) — les e-mails ne partiront pas. Vérifiez backend/.env puis redémarrez l’API.'

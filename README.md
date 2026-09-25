@@ -135,6 +135,23 @@ AfeconCatalogue/
 - `POST /api/import` — multipart `xlsx` + `images[]`
 - CRUD `/api/products`, `/api/references`, `/api/families`
 
+## Déploiement Railway
+
+Un seul service à la racine du dépôt (pas le dossier `backend/` seul). Fichier `railway.toml` :
+
+- **Build** : `npm run build:deploy` (installe backend + frontend, puis `vite build`)
+- **Start** : `npm start` (API + fichiers `frontend/dist` en production)
+- **Pre-deploy** : `npm run db:migrate`
+
+Variables **obligatoires** sur le service Railway (les variables du fichier local `backend/.env` ne sont pas envoyées sur Railway) :
+
+- `DATABASE_URL` — PostgreSQL Railway (plugin)
+- `ADMIN_API_KEY`, `SESSION_SECRET` (32+ caractères)
+- `CONTACT_TO_EMAIL`, SMTP si e-mails
+- `FRONTEND_URL` — optionnel si `RAILWAY_PUBLIC_DOMAIN` est défini (URL `https://…`)
+
+`NODE_ENV=production` est défini par Railway : le site React est servi par Express sur le même domaine.
+
 ## Variables d’environnement
 
 Voir `.env.example` / `backend/.env` :
