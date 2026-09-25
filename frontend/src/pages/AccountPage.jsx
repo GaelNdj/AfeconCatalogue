@@ -179,7 +179,7 @@ export default function AccountPage() {
               <h2 className="mb-4 font-semibold text-ink">Profil</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className="text-sm font-medium">Contact</span>
+                  <span className="text-sm font-medium">Nom / Prénom</span>
                   <input
                     className={`mt-1 ${inputClass}`}
                     value={profile.contact_name}

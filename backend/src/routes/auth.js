@@ -64,6 +64,10 @@ router.post('/register', authLimiter, assertSameOrigin, async (req, res, next) =
     if (!company) {
       return res.status(400).json({ error: 'Nom de société requis' });
     }
+    const contactName = String(req.body.contact_name || '').trim();
+    if (!contactName) {
+      return res.status(400).json({ error: 'Nom et prénom requis' });
+    }
 
     const existing = await query(`SELECT id FROM users WHERE email = $1`, [email]);
     if (existing.rows[0]) {
@@ -72,13 +76,14 @@ router.post('/register', authLimiter, assertSameOrigin, async (req, res, next) =
 
     const passwordHash = await hashPassword(req.body.password);
     const ins = await query(
-      `INSERT INTO users (email, password_hash, company_name, phone, address_line, city)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, email, company_name, phone, address_line, city`,
+      `INSERT INTO users (email, password_hash, company_name, contact_name, phone, address_line, city)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, email, company_name, contact_name, phone, address_line, city`,
       [
         email,
         passwordHash,
         company,
+        contactName,
         req.body.phone?.trim() || null,
         req.body.address_line?.trim() || null,
         req.body.city?.trim() || null,

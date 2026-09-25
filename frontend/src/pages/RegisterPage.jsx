@@ -14,6 +14,7 @@ export default function RegisterPage() {
   const [form, setForm] = useState({
     email: '',
     password: '',
+    contact_name: '',
     company_name: '',
     phone: '',
     address_line: '',
@@ -73,6 +74,17 @@ export default function RegisterPage() {
             onChange={(e) => set('password', e.target.value)}
           />
           <span className="mt-1 block text-xs text-muted">8 caractères minimum</span>
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-ink">Nom / Prénom <span className="text-accent">*</span></span>
+          <input
+            required
+            autoComplete="name"
+            className={`mt-1.5 ${inputClass}`}
+            value={form.contact_name}
+            onChange={(e) => set('contact_name', e.target.value)}
+            placeholder="Jean Dupont"
+          />
         </label>
         <label className="block">
           <span className="text-sm font-medium text-ink">Société <span className="text-accent">*</span></span>
