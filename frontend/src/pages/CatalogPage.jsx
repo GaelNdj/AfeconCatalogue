@@ -72,7 +72,7 @@ export default function CatalogPage() {
     ? `${data.total} produit${data.total !== 1 ? 's' : ''} trouvé${data.total !== 1 ? 's' : ''}`
     : selectedFamily
       ? `Produits de la famille ${selectedFamily.name.toLowerCase()}`
-      : 'Parcourez l’ensemble de nos références professionnelles';
+      : 'Des pièces sélectionnées pour leur qualité et leur fiabilité, répondant aux exigences des normes françaises et européennes. AfeconCatalogue, la qualité sans compromis.';
 
   return (
     <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6">
