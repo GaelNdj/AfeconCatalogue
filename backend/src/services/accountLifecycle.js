@@ -16,9 +16,9 @@ const LIST_SQL = `
     u.status,
     u.deletion_scheduled_at,
     COALESCE(u.last_login_at, u.created_at) AS last_activity_at,
-    (SELECT COUNT(*)::int FROM orders o WHERE o.user_id = u.id) AS order_count,
-    (SELECT COUNT(*)::int FROM quotes q WHERE q.user_id = u.id) AS quote_count
-  FROM users u
+    (SELECT COUNT(*)::int FROM public.orders o WHERE o.user_id::text = u.id::text) AS order_count,
+    (SELECT COUNT(*)::int FROM public.quotes q WHERE q.user_id::text = u.id::text) AS quote_count
+  FROM public.users u
 `;
 
 export function isInactiveByActivity(lastActivityAt, now = new Date()) {
@@ -79,38 +79,63 @@ export async function markStaleAccountsInactive() {
 export async function applyDueDeletions() {
   const due = await query(
     `SELECT u.id
-     FROM users u
+     FROM public.users u
      WHERE u.status = 'pending_deletion'
        AND u.deletion_scheduled_at IS NOT NULL
        AND u.deletion_scheduled_at <= NOW()
-       AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)`
+       AND NOT EXISTS (SELECT 1 FROM public.orders o WHERE o.user_id::text = u.id::text)`
   );
   const ids = due.rows.map((row) => row.id);
   if (!ids.length) return { deleted: 0, skippedWithOrders: 0 };
 
   const withOrders = await query(
     `SELECT u.id
-     FROM users u
+     FROM public.users u
      WHERE u.status = 'pending_deletion'
        AND u.deletion_scheduled_at <= NOW()
-       AND EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)`
+       AND EXISTS (SELECT 1 FROM public.orders o WHERE o.user_id::text = u.id::text)`
   );
   if (withOrders.rowCount) {
     await query(
-      `UPDATE users
+      `UPDATE public.users
        SET status = 'inactive', deletion_scheduled_at = NULL, updated_at = NOW()
-       WHERE id = ANY($1::int[])`,
-      [withOrders.rows.map((row) => row.id)]
+       WHERE id::text = ANY($1::text[])`,
+      [withOrders.rows.map((row) => String(row.id))]
     );
   }
 
-  const del = await query(`DELETE FROM users WHERE id = ANY($1::int[])`, [ids]);
+  const del = await query(`DELETE FROM public.users WHERE id::text = ANY($1::text[])`, [
+    ids.map((id) => String(id)),
+  ]);
   return { deleted: del.rowCount, skippedWithOrders: withOrders.rowCount };
+}
+
+export async function ensureUserAccountColumns() {
+  await query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS status VARCHAR(32)`);
+  await query(`UPDATE public.users SET status = 'active' WHERE status IS NULL`);
+  await query(`ALTER TABLE public.users ALTER COLUMN status SET DEFAULT 'active'`);
+  await query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS deletion_scheduled_at TIMESTAMPTZ`);
+}
+
+export async function describeIdTypes() {
+  const r = await query(
+    `SELECT table_name, column_name, data_type
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND (
+         (table_name = 'users' AND column_name IN ('id', 'status', 'last_login_at'))
+         OR (table_name = 'orders' AND column_name IN ('id', 'user_id', 'quote_id'))
+         OR (table_name = 'quotes' AND column_name IN ('id', 'user_id'))
+       )
+     ORDER BY table_name, column_name`
+  );
+  return r.rows;
 }
 
 export async function recordSuccessfulLogin(userId) {
   await query(
-    `UPDATE users
+    `UPDATE public.users
      SET last_login_at = NOW(),
          status = 'active',
          deletion_scheduled_at = NULL,

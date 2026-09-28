@@ -142,14 +142,29 @@ adminRouter.get('/', async (_req, res, next) => {
       `SELECT o.id, o.order_number, o.status, o.payment_status, o.total_cdf, o.total_usd, o.created_at,
               q.quote_number, u.email AS user_email,
               o.customer_snapshot->>'company_name' AS company_name
-       FROM orders o
-       JOIN quotes q ON q.id = o.quote_id
-       JOIN users u ON u.id = o.user_id
+       FROM public.orders o
+       JOIN public.quotes q ON q.id::text = o.quote_id::text
+       JOIN public.users u ON u.id::text = o.user_id::text
        ORDER BY o.created_at DESC
        LIMIT 200`
     );
     res.json({ items: r.rows });
   } catch (e) {
+    // #region agent log
+    fetch('http://127.0.0.1:7581/ingest/20d23877-a71f-467f-86e2-87ccf471af2f', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '913862' },
+      body: JSON.stringify({
+        sessionId: '913862',
+        runId: 'admin-sql',
+        hypothesisId: 'B',
+        location: 'orders.js:adminGET',
+        message: 'admin orders query failed',
+        data: { code: e.code, sqlMessage: e.message },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     next(e);
   }
 });

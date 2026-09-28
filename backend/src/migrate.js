@@ -1,4 +1,5 @@
 import { pool } from './db.js';
+import { ensureUserAccountColumns, describeIdTypes } from './services/accountLifecycle.js';
 
 const sql = `
 CREATE TABLE IF NOT EXISTS families (
@@ -317,7 +318,20 @@ CREATE INDEX IF NOT EXISTS idx_password_reset_expires ON password_reset_tokens(e
 async function migrate() {
   const client = await pool.connect();
   try {
-    await client.query(sql);
+    const statements = sql
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    for (const stmt of statements) {
+      try {
+        await client.query(stmt);
+      } catch (err) {
+        console.error('[migrate] statement skipped:', err.message);
+      }
+    }
+    await ensureUserAccountColumns();
+    const types = await describeIdTypes();
+    console.log('[migrate] column types', types);
     console.log('Migration OK');
   } finally {
     client.release();

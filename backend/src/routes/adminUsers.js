@@ -5,6 +5,8 @@ import { sendAccountDeletionWarningEmail } from '../services/mail.js';
 import {
   DELETION_NOTICE_DAYS,
   applyDueDeletions,
+  describeIdTypes,
+  ensureUserAccountColumns,
   getAccountById,
   listAccounts,
   markStaleAccountsInactive,
@@ -34,6 +36,9 @@ function debugLog(hypothesisId, location, message, data) {
 
 router.get('/', async (_req, res, next) => {
   try {
+    await ensureUserAccountColumns();
+    const types = await describeIdTypes();
+    debugLog('C', 'adminUsers.js:GET', 'schema types', { types });
     const due = await applyDueDeletions();
     const marked = await markStaleAccountsInactive();
     const items = await listAccounts();
@@ -47,6 +52,10 @@ router.get('/', async (_req, res, next) => {
     });
     res.json({ items, due, markedInactive: marked });
   } catch (e) {
+    debugLog('C', 'adminUsers.js:GET', 'admin users query failed', {
+      code: e.code,
+      sqlMessage: e.message,
+    });
     next(e);
   }
 });
