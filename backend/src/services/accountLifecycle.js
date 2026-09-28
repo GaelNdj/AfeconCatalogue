@@ -65,7 +65,7 @@ export async function listAccounts() {
 
 export async function markStaleAccountsInactive() {
   const r = await query(
-    `UPDATE users
+    `UPDATE public.users
      SET status = 'inactive', updated_at = NOW()
      WHERE status = 'active'
        AND deletion_scheduled_at IS NULL
@@ -111,6 +111,7 @@ export async function applyDueDeletions() {
 }
 
 export async function ensureUserAccountColumns() {
+  await query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS contact_name VARCHAR(200)`);
   await query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`);
   await query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS status VARCHAR(32)`);
   await query(`UPDATE public.users SET status = 'active' WHERE status IS NULL`);
@@ -124,7 +125,7 @@ export async function describeIdTypes() {
      FROM information_schema.columns
      WHERE table_schema = 'public'
        AND (
-         (table_name = 'users' AND column_name IN ('id', 'status', 'last_login_at'))
+         (table_name = 'users' AND column_name IN ('id', 'status', 'last_login_at', 'contact_name'))
          OR (table_name = 'orders' AND column_name IN ('id', 'user_id', 'quote_id'))
          OR (table_name = 'quotes' AND column_name IN ('id', 'user_id'))
        )
