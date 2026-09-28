@@ -1,7 +1,7 @@
 # https://docs.railway.com/reference/config-as-code
 [build]
 builder = "NIXPACKS"
-buildCommand = "npm run build:deploy"
+buildCommand = "npm run build"
 
 [deploy]
 startCommand = "npm start"

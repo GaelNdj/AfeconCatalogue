@@ -1,0 +1,10 @@
+# Nixpacks ignores railway.toml buildCommand on some services and
+# falls back to `npm run build`. Keep that script self-contained.
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm start"

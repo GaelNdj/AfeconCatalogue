@@ -139,7 +139,7 @@ AfeconCatalogue/
 
 Un seul service à la racine du dépôt (pas le dossier `backend/` seul). Fichier `railway.toml` :
 
-- **Build** : `npm run build:deploy` (installe backend + frontend, puis `vite build`)
+- **Build** : `npm run build` (installe le frontend **avec** Vite / Tailwind, puis `vite build`). `NODE_ENV=production` n’omet plus les outils de build.
 - **Start** : `npm start` (API + fichiers `frontend/dist` en production)
 - **Pre-deploy** : `npm run db:migrate`
 
