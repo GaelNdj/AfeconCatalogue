@@ -111,12 +111,27 @@ export async function applyDueDeletions() {
 }
 
 export async function ensureUserAccountColumns() {
-  await query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS contact_name VARCHAR(200)`);
-  await query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`);
-  await query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS status VARCHAR(32)`);
+  const alters = [
+    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS company_name VARCHAR(255)`,
+    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS phone VARCHAR(50)`,
+    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS address_line TEXT`,
+    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS city VARCHAR(100)`,
+    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS contact_name VARCHAR(200)`,
+    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
+    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS status VARCHAR(32)`,
+    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS deletion_scheduled_at TIMESTAMPTZ`,
+  ];
+  for (const sql of alters) {
+    try {
+      await query(sql);
+    } catch (err) {
+      console.error('[users] ensure column skipped:', err.message);
+    }
+  }
   await query(`UPDATE public.users SET status = 'active' WHERE status IS NULL`);
   await query(`ALTER TABLE public.users ALTER COLUMN status SET DEFAULT 'active'`);
-  await query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS deletion_scheduled_at TIMESTAMPTZ`);
 }
 
 export async function describeIdTypes() {
@@ -125,7 +140,10 @@ export async function describeIdTypes() {
      FROM information_schema.columns
      WHERE table_schema = 'public'
        AND (
-         (table_name = 'users' AND column_name IN ('id', 'status', 'last_login_at', 'contact_name'))
+         (table_name = 'users' AND column_name IN (
+           'id', 'email', 'company_name', 'contact_name', 'phone', 'city',
+           'address_line', 'created_at', 'status', 'last_login_at', 'deletion_scheduled_at'
+         ))
          OR (table_name = 'orders' AND column_name IN ('id', 'user_id', 'quote_id'))
          OR (table_name = 'quotes' AND column_name IN ('id', 'user_id'))
        )

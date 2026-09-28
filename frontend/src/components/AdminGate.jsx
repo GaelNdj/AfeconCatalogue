@@ -39,8 +39,7 @@ export default function AdminGate({ children }) {
       </div>
       <h2 className="font-display text-xl font-bold text-ink">Accès administration</h2>
       <p className="mt-2 text-sm text-muted">
-        Saisissez la clé définie dans <code className="text-xs">ADMIN_API_KEY</code> (fichier{' '}
-        <code className="text-xs">backend/.env</code>).
+        Saisissez la clé définie.
       </p>
       <form onSubmit={onSubmit} className="mt-6 space-y-3">
         <PasswordInput
