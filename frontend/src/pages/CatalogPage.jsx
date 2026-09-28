@@ -72,7 +72,8 @@ export default function CatalogPage() {
     ? `${data.total} produit${data.total !== 1 ? 's' : ''} trouvé${data.total !== 1 ? 's' : ''}`
     : selectedFamily
       ? `Produits de la famille ${selectedFamily.name.toLowerCase()}`
-      : 'Des pièces sélectionnées pour leur qualité et leur fiabilité, répondant aux exigences des normes françaises et européennes. AfeconCatalogue, la qualité sans compromis.';
+      : null;
+  const isDefaultCatalog = !q && !selectedFamily;
 
   return (
     <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6">
@@ -86,7 +87,27 @@ export default function CatalogPage() {
             <h1 className="font-display mt-1 text-3xl font-bold tracking-tight sm:text-4xl">
               {title}
             </h1>
-            <p className="mt-2 max-w-xl text-sm text-teal-50/90">{subtitle}</p>
+            {isDefaultCatalog ? (
+              <div className="mt-2 max-w-2xl">
+                <p className="text-sm leading-relaxed text-white/85">
+                  Des pièces sélectionnées pour leur qualité et leur fiabilité, répondant aux
+                  exigences des normes françaises et européennes.
+                </p>
+                <p className="font-display mt-3 text-base leading-snug tracking-tight sm:text-lg">
+                  <span className="font-medium text-white/90">AfeconCatalogue, </span>
+                  <span className="text-[1.15em] font-bold text-[#f0d78c]">
+                    la qualité sans compromis
+                  </span>
+                  <span className="font-medium text-white/90">.</span>
+                </p>
+                <span
+                  className="mt-2.5 block h-0.5 w-12 rounded-full bg-[#f0d78c]"
+                  aria-hidden
+                />
+              </div>
+            ) : (
+              <p className="mt-2 max-w-xl text-sm text-teal-50/90">{subtitle}</p>
+            )}
           </div>
           {!loading && (
             <div className="rounded-xl bg-white/15 px-4 py-3 text-center backdrop-blur">
