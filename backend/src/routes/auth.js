@@ -11,6 +11,7 @@ import {
 import { setSessionCookie, clearSessionCookie } from '../auth/cookies.js';
 import { assertSameOrigin, attachUser, requireUser } from '../middleware/userAuth.js';
 import { sendWelcomeEmail, sendPasswordResetEmail } from '../services/mail.js';
+import { recordSuccessfulLogin } from '../services/accountLifecycle.js';
 import {
   createResetToken,
   storePasswordResetToken,
@@ -90,6 +91,7 @@ router.post('/register', authLimiter, assertSameOrigin, async (req, res, next) =
       ]
     );
     const user = ins.rows[0];
+    await recordSuccessfulLogin(user.id);
     await loginUser(res, user.id);
     const welcome = await sendWelcomeEmail({ email: user.email, companyName: user.company_name });
     res.status(201).json({ user: publicUser(user), welcomeEmailSent: welcome.sent });
@@ -112,6 +114,22 @@ router.post('/login', authLimiter, assertSameOrigin, async (req, res, next) => {
       return res.status(401).json({ error: 'Identifiants incorrects' });
     }
 
+    await recordSuccessfulLogin(user.id);
+    // #region agent log
+    fetch('http://127.0.0.1:7581/ingest/20d23877-a71f-467f-86e2-87ccf471af2f', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '913862' },
+      body: JSON.stringify({
+        sessionId: '913862',
+        runId: 'accounts-admin',
+        hypothesisId: 'D',
+        location: 'auth.js:login',
+        message: 'login cleared inactivity / recorded last_login',
+        data: { userId: user.id, previousStatus: user.status || 'active' },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     await loginUser(res, user.id);
     res.json({ user: publicUser(user) });
   } catch (e) {

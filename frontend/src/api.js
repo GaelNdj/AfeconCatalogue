@@ -249,6 +249,17 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     }),
+  getAdminUsers: () => adminRequest('/api/admin/users'),
+  warnAdminUser: (id) =>
+    adminRequest(`/api/admin/users/${id}/warn`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }),
+  deleteAdminUser: (id) =>
+    adminRequest(`/api/admin/users/${id}`, {
+      method: 'DELETE',
+    }),
 };
 
 export function imageUrl(path) {

@@ -46,6 +46,32 @@ export async function sendWelcomeEmail({ email, companyName }) {
   }
 }
 
+export async function sendAccountDeletionWarningEmail({ email, companyName, loginUrl, days }) {
+  const transporter = buildTransporter();
+  if (!transporter) {
+    throw Object.assign(new Error('Envoi e-mail non configuré (SMTP_HOST)'), { status: 503 });
+  }
+  await transporter.sendMail({
+    from: smtpFrom(),
+    to: email,
+    subject: '[AfeconCatalogue] Votre compte sera supprimé dans 1 mois sans connexion',
+    text: [
+      `Bonjour${companyName ? ` ${companyName}` : ''},`,
+      '',
+      `Votre compte AfeconCatalogue est inactif depuis plus d’un an.`,
+      `Sans connexion dans un délai de ${days} jours, il sera définitivement supprimé.`,
+      '',
+      'Pour conserver votre compte, connectez-vous ici :',
+      loginUrl,
+      '',
+      'Si vous n’utilisez plus le catalogue, vous pouvez ignorer ce message.',
+      '',
+      '— AfeconCatalogue',
+    ].join('\n'),
+  });
+  return { sent: true };
+}
+
 export async function sendPasswordResetEmail({ email, resetUrl }) {
   const transporter = buildTransporter();
   if (!transporter) {

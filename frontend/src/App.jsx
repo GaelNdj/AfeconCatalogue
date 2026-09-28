@@ -23,6 +23,7 @@ import QuoteDetailPage from './pages/QuoteDetailPage.jsx';
 import OrderDetailPage from './pages/OrderDetailPage.jsx';
 import OrderPaymentPage from './pages/OrderPaymentPage.jsx';
 import AdminOrders from './pages/admin/AdminOrders.jsx';
+import AdminAccounts from './pages/admin/AdminAccounts.jsx';
 import RequireAuth from './components/RequireAuth.jsx';
 import { ADMIN_BASE_PATH } from './adminPaths.js';
 
@@ -64,6 +65,7 @@ export default function App() {
           <Route path="livraison" element={<AdminShipping />} />
           <Route path="import" element={<AdminImport />} />
           <Route path="commandes" element={<AdminOrders />} />
+          <Route path="comptes" element={<AdminAccounts />} />
         </Route>
       </Routes>
     </div>

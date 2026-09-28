@@ -17,6 +17,7 @@ import configRouter from './routes/config.js';
 import authRouter from './routes/auth.js';
 import quotesRouter from './routes/quotes.js';
 import ordersRouter, { adminRouter as adminOrdersRouter } from './routes/orders.js';
+import adminUsersRouter from './routes/adminUsers.js';
 import paymentsRouter from './routes/payments.js';
 import { attachUser } from './middleware/userAuth.js';
 import { isSmtpConfigured } from './services/mailTransporter.js';
@@ -75,6 +76,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/quotes', quotesRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/admin/orders', adminOrdersRouter);
+app.use('/api/admin/users', adminUsersRouter);
 
 if (serveFrontend) {
   app.use(express.static(frontendDist));
