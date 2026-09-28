@@ -1,10 +1,13 @@
-# Nixpacks ignores railway.toml buildCommand on some services and
-# falls back to `npm run build`. Keep that script self-contained.
+# Nixpacks often ignores railway.toml and runs `npm run build` only.
+# That must install backend (express) AND frontend (vite).
 [phases.setup]
 nixPkgs = ["nodejs_20"]
 
+[phases.install]
+cmds = ["npm run install:all"]
+
 [phases.build]
-cmds = ["npm run build"]
+cmds = ["node scripts/log-frontend-build.js", "npm run build --prefix frontend"]
 
 [start]
 cmd = "npm start"

@@ -11,8 +11,8 @@
     "install:all": "npm install && npm run install:backend && npm run install:frontend",
     "db:migrate": "npm run migrate --prefix backend",
     "db:seed": "npm run seed --prefix backend",
-    "build": "npm run install:frontend && node scripts/log-frontend-build.js && npm run build --prefix frontend",
-    "build:deploy": "npm run install:all && node scripts/log-frontend-build.js && npm run build --prefix frontend",
+    "build": "npm run install:all && node scripts/log-frontend-build.js && npm run build --prefix frontend",
+    "build:deploy": "npm run build",
     "start": "npm run start --prefix backend"
   },
   "engines": {

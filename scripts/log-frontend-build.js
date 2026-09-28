@@ -6,18 +6,20 @@ import { fileURLToPath } from 'url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const viteBin = path.join(root, 'frontend/node_modules/.bin/vite');
 const vitePkg = path.join(root, 'frontend/node_modules/vite/package.json');
+const expressPkg = path.join(root, 'backend/node_modules/express/package.json');
 
 const payload = {
   sessionId: '913862',
-  runId: process.env.DEBUG_BUILD_RUN || 'pre-fix',
-  hypothesisId: 'A',
+  runId: process.env.DEBUG_BUILD_RUN || 'post-fix',
+  hypothesisId: 'F',
   location: 'scripts/log-frontend-build.js',
-  message: 'frontend build toolchain',
+  message: 'backend+frontend build toolchain',
   data: {
     nodeEnv: process.env.NODE_ENV || '',
     npmConfigProduction: process.env.NPM_CONFIG_PRODUCTION || '',
     viteBinExists: fs.existsSync(viteBin),
     vitePkgExists: fs.existsSync(vitePkg),
+    expressExists: fs.existsSync(expressPkg),
     npmScript: process.env.npm_lifecycle_event || '',
   },
   timestamp: Date.now(),
@@ -42,5 +44,9 @@ try {
 console.log(
   `[build] NODE_ENV=${payload.data.nodeEnv || '(empty)'} vite=${
     payload.data.viteBinExists || payload.data.vitePkgExists ? 'ok' : 'missing'
-  }`
+  } express=${payload.data.expressExists ? 'ok' : 'missing'}`
 );
+if (!payload.data.expressExists) {
+  console.error('[build] backend/node_modules/express manquant — npm run install:backend a échoué');
+  process.exit(1);
+}
