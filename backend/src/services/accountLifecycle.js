@@ -110,6 +110,27 @@ export async function applyDueDeletions() {
   return { deleted: del.rowCount, skippedWithOrders: withOrders.rowCount };
 }
 
+/** Tables/colonnes auth — utile si migrate n’a pas tout appliqué sur Railway. */
+export async function ensureAuthSchema() {
+  await ensureUserAccountColumns();
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS public.user_sessions (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON public.user_sessions(user_id)`);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON public.user_sessions(expires_at)`
+    );
+  } catch (err) {
+    console.error('[users] user_sessions ensure skipped:', err.message);
+  }
+}
+
 export async function ensureUserAccountColumns() {
   const alters = [
     `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS company_name VARCHAR(255)`,
@@ -130,8 +151,12 @@ export async function ensureUserAccountColumns() {
       console.error('[users] ensure column skipped:', err.message);
     }
   }
-  await query(`UPDATE public.users SET status = 'active' WHERE status IS NULL`);
-  await query(`ALTER TABLE public.users ALTER COLUMN status SET DEFAULT 'active'`);
+  try {
+    await query(`UPDATE public.users SET status = 'active' WHERE status IS NULL`);
+    await query(`ALTER TABLE public.users ALTER COLUMN status SET DEFAULT 'active'`);
+  } catch (err) {
+    console.error('[users] status default skipped:', err.message);
+  }
 }
 
 export async function describeIdTypes() {

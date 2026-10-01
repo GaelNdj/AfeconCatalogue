@@ -22,6 +22,7 @@ import paymentsRouter from './routes/payments.js';
 import { attachUser } from './middleware/userAuth.js';
 import { isSmtpConfigured } from './services/mailTransporter.js';
 import { getPrimaryFrontendOrigin, isFrontendOriginAllowed } from './frontendOrigin.js';
+import { ensureAuthSchema } from './services/accountLifecycle.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env') });
@@ -100,6 +101,9 @@ app.use((err, _req, res, _next) => {
 
 const server = app.listen(PORT, () => {
   console.log(`AfeconCatalogue API on http://localhost:${PORT}`);
+  ensureAuthSchema()
+    .then(() => console.log('[api] Schéma auth (users / sessions) vérifié'))
+    .catch((err) => console.error('[api] Schéma auth:', err.message));
   if (serveFrontend) {
     console.log(`[api] Frontend statique servi depuis ${frontendDist}`);
     console.log(`[api] URL publique (CORS / cookies) : ${frontendOrigin}`);

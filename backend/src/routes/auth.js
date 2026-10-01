@@ -11,7 +11,7 @@ import {
 import { setSessionCookie, clearSessionCookie } from '../auth/cookies.js';
 import { assertSameOrigin, attachUser, requireUser } from '../middleware/userAuth.js';
 import { sendWelcomeEmail, sendPasswordResetEmail } from '../services/mail.js';
-import { recordSuccessfulLogin } from '../services/accountLifecycle.js';
+import { ensureAuthSchema, recordSuccessfulLogin } from '../services/accountLifecycle.js';
 import {
   createResetToken,
   storePasswordResetToken,
@@ -55,6 +55,7 @@ router.get('/me', attachUser, (req, res) => {
 
 router.post('/register', authLimiter, assertSameOrigin, async (req, res, next) => {
   try {
+    await ensureAuthSchema();
     const emailErr = validateEmail(req.body?.email);
     if (emailErr) return res.status(400).json({ error: emailErr });
     const passErr = validatePassword(req.body?.password);
@@ -96,12 +97,29 @@ router.post('/register', authLimiter, assertSameOrigin, async (req, res, next) =
     const welcome = await sendWelcomeEmail({ email: user.email, companyName: user.company_name });
     res.status(201).json({ user: publicUser(user), welcomeEmailSent: welcome.sent });
   } catch (e) {
+    console.error('[auth/register]', e.code || 'error', String(e.message || e).slice(0, 300));
+    // #region agent log
+    fetch('http://127.0.0.1:7581/ingest/20d23877-a71f-467f-86e2-87ccf471af2f', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '913862' },
+      body: JSON.stringify({
+        sessionId: '913862',
+        runId: 'register-fix',
+        hypothesisId: 'R1',
+        location: 'auth.js:register',
+        message: 'register failed',
+        data: { code: e.code, pgMessage: String(e.message || '').slice(0, 200) },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     next(e);
   }
 });
 
 router.post('/login', authLimiter, assertSameOrigin, async (req, res, next) => {
   try {
+    await ensureAuthSchema();
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = req.body?.password || '';
     if (!email || !password) {
