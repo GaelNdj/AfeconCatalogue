@@ -32,7 +32,14 @@ function lineRef(line) {
   return line.internal_code || line.ref_pro || line.sku_code || '—';
 }
 
-function renderDocument({ doc, title, docNumber, customer, meta, lines, totals }) {
+function lineRefsAdmin(line) {
+  return {
+    internal: line.internal_code || line.ref_pro || '—',
+    catalog: line.sku_code || '—',
+  };
+}
+
+function renderDocument({ doc, title, docNumber, customer, meta, lines, totals, adminPurchase }) {
   const margin = 50;
   const pageWidth = doc.page.width - margin * 2;
 
@@ -61,20 +68,37 @@ function renderDocument({ doc, title, docNumber, customer, meta, lines, totals }
   doc.fillColor('#000000');
 
   const tableTop = Math.max(metaY, clientY) + 24;
-  const cols = {
-    designation: margin,
-    ref: margin + pageWidth * 0.38,
-    qty: margin + pageWidth * 0.52,
-    totalCdf: margin + pageWidth * 0.6,
-    totalUsd: margin + pageWidth * 0.78,
-  };
+  const cols = adminPurchase
+    ? {
+        designation: margin,
+        refInternal: margin + pageWidth * 0.32,
+        refCatalog: margin + pageWidth * 0.46,
+        qty: margin + pageWidth * 0.56,
+        unitUsd: margin + pageWidth * 0.62,
+        totalCdf: margin + pageWidth * 0.72,
+        totalUsd: margin + pageWidth * 0.86,
+      }
+    : {
+        designation: margin,
+        ref: margin + pageWidth * 0.38,
+        qty: margin + pageWidth * 0.52,
+        totalCdf: margin + pageWidth * 0.6,
+        totalUsd: margin + pageWidth * 0.78,
+      };
 
   doc.font('Helvetica-Bold').fontSize(8).fillColor('#666666');
   doc.text('DÉSIGNATION', cols.designation, tableTop);
-  doc.text('RÉF.', cols.ref, tableTop);
-  doc.text('QTÉ', cols.qty, tableTop);
-  doc.text('TOTAL CDF', cols.totalCdf, tableTop, { width: pageWidth * 0.16, align: 'right' });
-  doc.text('TOTAL USD', cols.totalUsd, tableTop, { width: pageWidth * 0.2, align: 'right' });
+  if (adminPurchase) {
+    doc.text('RÉF. INT.', cols.refInternal, tableTop);
+    doc.text('CODE CAT.', cols.refCatalog, tableTop);
+    doc.text('QTÉ', cols.qty, tableTop);
+    doc.text('P.U. USD', cols.unitUsd, tableTop, { width: pageWidth * 0.08, align: 'right' });
+  } else {
+    doc.text('RÉF.', cols.ref, tableTop);
+    doc.text('QTÉ', cols.qty, tableTop);
+  }
+  doc.text('TOTAL CDF', cols.totalCdf, tableTop, { width: pageWidth * 0.14, align: 'right' });
+  doc.text('TOTAL USD', cols.totalUsd, tableTop, { width: pageWidth * 0.12, align: 'right' });
   doc.fillColor('#000000');
 
   let y = tableTop + 18;
@@ -88,9 +112,23 @@ function renderDocument({ doc, title, docNumber, customer, meta, lines, totals }
 
     const rowHeight = line.price_on_quote ? 28 : 34;
     doc.font('Helvetica').fontSize(9).fillColor('#000000');
-    doc.text(lineLabel(line), cols.designation, y, { width: pageWidth * 0.35 });
-    doc.text(lineRef(line), cols.ref, y, { width: pageWidth * 0.12 });
-    doc.text(String(line.qty), cols.qty, y);
+    doc.text(lineLabel(line), cols.designation, y, { width: pageWidth * (adminPurchase ? 0.3 : 0.35) });
+    if (adminPurchase) {
+      const refs = lineRefsAdmin(line);
+      doc.text(refs.internal, cols.refInternal, y, { width: pageWidth * 0.12 });
+      doc.text(refs.catalog, cols.refCatalog, y, { width: pageWidth * 0.08 });
+      doc.text(String(line.qty), cols.qty, y);
+      if (!line.price_on_quote) {
+        doc.fontSize(8).fillColor('#444444').text(fmtUsd(line.unit_price_usd), cols.unitUsd, y, {
+          width: pageWidth * 0.08,
+          align: 'right',
+        });
+        doc.fontSize(9).fillColor('#000000');
+      }
+    } else {
+      doc.text(lineRef(line), cols.ref, y, { width: pageWidth * 0.12 });
+      doc.text(String(line.qty), cols.qty, y);
+    }
 
     if (line.price_on_quote) {
       doc.fillColor('#666666').text('Sur devis', cols.totalCdf, y, {
@@ -198,6 +236,51 @@ export function buildQuotePdf(quote, lines) {
         total_usd: quote.total_usd,
         shipping_rule_name: quote.shipping_rule_name,
       },
+    })
+  );
+}
+
+export function buildAdminOrderPdf(order, lines, quoteNumber) {
+  const snap = order.customer_snapshot || {};
+  const customer = [
+    snap.company_name || '—',
+    snap.email,
+    snap.phone,
+    [snap.address_line, snap.city].filter(Boolean).join(', ') || null,
+  ].filter(Boolean);
+
+  const statusLabels = {
+    pending_payment: 'En attente de paiement',
+    received: 'Reçue',
+    preparing: 'En préparation',
+    shipped: 'Expédiée',
+  };
+
+  const meta = [
+    `Date : ${fmtDateFr(order.created_at)}`,
+    quoteNumber ? `Devis : ${quoteNumber}` : null,
+    `Statut : ${statusLabels[order.status] || order.status}`,
+    order.payment_status === 'paid' ? 'Paiement : payé' : `Paiement : ${order.payment_status || '—'}`,
+  ].filter(Boolean);
+
+  return buildPdfBuffer((doc) =>
+    renderDocument({
+      doc,
+      title: 'Bon de commande (achat fournisseur)',
+      docNumber: order.order_number,
+      customer,
+      meta,
+      lines,
+      totals: {
+        subtotal_cdf: order.subtotal_cdf,
+        subtotal_usd: order.subtotal_usd,
+        shipping_cdf: order.shipping_cdf,
+        shipping_usd: order.shipping_usd,
+        total_cdf: order.total_cdf,
+        total_usd: order.total_usd,
+        shipping_rule_name: order.shipping_rule_name,
+      },
+      adminPurchase: true,
     })
   );
 }

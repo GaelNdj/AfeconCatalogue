@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, formatCdf, formatUsd } from '../../api.js';
+import { adminPath } from '../../adminPaths.js';
 
 const STATUS_OPTIONS = [
   { value: 'pending_payment', label: 'En attente de paiement' },
@@ -66,6 +68,7 @@ export default function AdminOrders() {
                 <th className="px-4 py-3 text-right">Total</th>
                 <th className="px-4 py-3">Paiement</th>
                 <th className="px-4 py-3">Statut</th>
+                <th className="px-4 py-3">Détail</th>
               </tr>
             </thead>
             <tbody>
@@ -102,6 +105,14 @@ export default function AdminOrders() {
                         </option>
                       ))}
                     </select>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link
+                      to={adminPath(`commandes/${o.id}`)}
+                      className="text-sm font-medium text-brand hover:underline"
+                    >
+                      Voir devis / facture
+                    </Link>
                   </td>
                 </tr>
               ))}

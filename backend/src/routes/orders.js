@@ -3,7 +3,7 @@ import { query, pool } from '../db.js';
 import { assertSameOrigin, attachUser, requireUser } from '../middleware/userAuth.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { createOrderFromQuote } from '../services/orderBuilder.js';
-import { buildOrderPdf } from '../services/documentPdf.js';
+import { buildAdminOrderPdf, buildOrderPdf } from '../services/documentPdf.js';
 import {
   createOrderCheckoutSession,
   confirmCheckoutSessionForUser,
@@ -149,6 +149,59 @@ adminRouter.get('/', async (_req, res, next) => {
        LIMIT 200`
     );
     res.json({ items: r.rows });
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminRouter.get('/:id', async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID invalide' });
+    const o = await query(
+      `SELECT o.*, q.quote_number, q.id AS quote_id, q.valid_until AS quote_valid_until,
+              u.email AS user_email, u.contact_name, u.phone AS user_phone, u.city AS user_city
+       FROM public.orders o
+       JOIN public.quotes q ON q.id::text = o.quote_id::text
+       JOIN public.catalogue_users u ON u.id::text = o.user_id::text
+       WHERE o.id = $1`,
+      [id]
+    );
+    if (!o.rows[0]) return res.status(404).json({ error: 'Commande introuvable' });
+    const lines = await query(
+      `SELECT * FROM order_lines WHERE order_id = $1 ORDER BY sort_order, id`,
+      [id]
+    );
+    res.json({ order: o.rows[0], lines: lines.rows });
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminRouter.get('/:id/pdf', async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID invalide' });
+    const o = await query(
+      `SELECT o.*, q.quote_number
+       FROM public.orders o
+       JOIN public.quotes q ON q.id::text = o.quote_id::text
+       WHERE o.id = $1`,
+      [id]
+    );
+    if (!o.rows[0]) return res.status(404).json({ error: 'Commande introuvable' });
+    const order = o.rows[0];
+    const lines = await query(
+      `SELECT * FROM order_lines WHERE order_id = $1 ORDER BY sort_order, id`,
+      [id]
+    );
+    const pdf = await buildAdminOrderPdf(order, lines.rows, order.quote_number);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${order.order_number}-achat.pdf"`
+    );
+    res.send(pdf);
   } catch (e) {
     next(e);
   }

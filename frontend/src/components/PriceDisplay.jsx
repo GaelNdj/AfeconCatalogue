@@ -2,7 +2,7 @@ import { formatCdf, formatUsd, isQuotePrice, QUOTE_PRICE_HINT, QUOTE_PRICE_TITLE
 
 /**
  * Affichage visiteur : CDF en principal, USD en secondaire.
- * @param {'inline'|'stacked'} layout — inline (défaut) ou empilé (CDF au-dessus, USD en dessous)
+ * @param {'inline'|'stacked'|'usdPrimary'} layout — inline, empilé CDF/USD, ou USD principal (admin)
  * @param {'sm'|'md'|'lg'|'xl'} size — taille du CDF (stacked ou inline)
  * @param {boolean} cdfOnly — masque l’USD
  */
@@ -51,13 +51,19 @@ export default function PriceDisplay({
       ? 'mt-1 text-sm font-medium text-muted'
       : 'mt-0.5 text-sm font-medium text-muted';
 
-  if (layout === 'stacked') {
+  if (layout === 'stacked' || layout === 'usdPrimary') {
+    const usdFirst = layout === 'usdPrimary';
     return (
-      <div className={`flex flex-col items-start ${className}`}>
-        <span className={cdfClass}>{formatCdf(amountCdf)}</span>
+      <div
+        className={`flex flex-col ${usdFirst ? 'items-end' : 'items-start'} ${className}`}
+      >
         {!cdfOnly && amountUsd != null && (
-          <span className={usdClass}>{formatUsd(amountUsd)}</span>
+          <span className={usdFirst ? cdfClass : usdClass}>{formatUsd(amountUsd)}</span>
         )}
+        {!cdfOnly && amountUsd == null && usdFirst && (
+          <span className={cdfClass}>—</span>
+        )}
+        <span className={usdFirst ? usdClass : cdfClass}>{formatCdf(amountCdf)}</span>
       </div>
     );
   }

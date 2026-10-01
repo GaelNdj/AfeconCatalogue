@@ -243,6 +243,9 @@ export const api = {
   getPaymentConfig: () => request('/api/config/payments'),
   downloadOrderPdf: (id) => downloadFile(`/api/orders/${id}/pdf`, `commande-${id}.pdf`),
   getAdminOrders: () => adminRequest('/api/admin/orders'),
+  getAdminOrder: (id) => adminRequest(`/api/admin/orders/${id}`),
+  downloadAdminOrderPdf: (id) =>
+    downloadFile(`/api/admin/orders/${id}/pdf`, `commande-${id}-achat.pdf`),
   updateAdminOrderStatus: (id, status) =>
     adminRequest(`/api/admin/orders/${id}`, {
       method: 'PATCH',
