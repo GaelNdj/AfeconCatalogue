@@ -110,22 +110,107 @@ export async function applyDueDeletions() {
   return { deleted: del.rowCount, skippedWithOrders: withOrders.rowCount };
 }
 
-/** Tables/colonnes auth — utile si migrate n’a pas tout appliqué sur Railway. */
-export async function ensureAuthSchema() {
-  await ensureUserAccountColumns();
-  try {
+async function warnIfForeignUsersTable() {
+  const r = await query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'users'
+       AND column_name IN ('technician', 'team_id', 'color', 'role_id')`
+  );
+  if (r.rows.length) {
+    console.warn(
+      '[users] public.users existe déjà avec un schéma d’un autre projet — AfeconCatalogue réutilise cette table (id auto + colonnes catalogue). Base dédiée recommandée à terme.'
+    );
+  }
+}
+
+/** Railway : table users héritée sans SERIAL/UUID default → INSERT échoue (23502 sur id). */
+export async function ensureUsersIdAutoGenerate() {
+  const r = await query(
+    `SELECT column_default, data_type, udt_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'id'`
+  );
+  const col = r.rows[0];
+  if (!col) return null;
+
+  const hasDefault =
+    col.column_default != null && String(col.column_default).trim().length > 0;
+  if (hasDefault) return col.data_type;
+
+  if (col.data_type === 'uuid') {
+    await query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+    await query(
+      `ALTER TABLE public.users ALTER COLUMN id SET DEFAULT gen_random_uuid()`
+    );
+    console.log('[users] DEFAULT gen_random_uuid() sur users.id');
+    return 'uuid';
+  }
+
+  if (col.data_type === 'integer' || col.udt_name === 'int4') {
+    await query(`CREATE SEQUENCE IF NOT EXISTS public.users_id_seq`);
+    await query(
+      `ALTER TABLE public.users ALTER COLUMN id SET DEFAULT nextval('public.users_id_seq'::regclass)`
+    );
+    await query(
+      `SELECT setval(
+        'public.users_id_seq',
+        GREATEST(1, COALESCE((SELECT MAX(id) FROM public.users), 0) + 1),
+        false
+      )`
+    );
+    console.log('[users] DEFAULT nextval(users_id_seq) sur users.id');
+    return 'integer';
+  }
+
+  console.warn('[users] users.id type non géré pour auto-génération:', col.data_type);
+  return col.data_type;
+}
+
+async function ensureUserSessionsTable(userIdSqlType) {
+  const fkType =
+    userIdSqlType === 'uuid' ? 'UUID' : userIdSqlType === 'integer' ? 'INT' : 'INT';
+  const exists = await query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'user_sessions'`
+  );
+  if (!exists.rows[0]) {
     await query(`
-      CREATE TABLE IF NOT EXISTS public.user_sessions (
+      CREATE TABLE public.user_sessions (
         id VARCHAR(64) PRIMARY KEY,
-        user_id INT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+        user_id ${fkType} NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
         expires_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
-    await query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON public.user_sessions(user_id)`);
-    await query(
-      `CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON public.user_sessions(expires_at)`
+    await query(`CREATE INDEX idx_user_sessions_user ON public.user_sessions(user_id)`);
+    await query(`CREATE INDEX idx_user_sessions_expires ON public.user_sessions(expires_at)`);
+    return;
+  }
+
+  const col = await query(
+    `SELECT data_type FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'user_sessions' AND column_name = 'user_id'`
+  );
+  const sessionType = col.rows[0]?.data_type;
+  const want = userIdSqlType === 'uuid' ? 'uuid' : 'integer';
+  if (sessionType && sessionType !== want) {
+    console.warn(
+      `[users] user_sessions.user_id (${sessionType}) ≠ users.id (${want}) — connexion auto peut échouer ; supprimez user_sessions ou alignez les types.`
     );
+  }
+  await query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON public.user_sessions(user_id)`);
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON public.user_sessions(expires_at)`
+  );
+}
+
+/** Tables/colonnes auth — utile si migrate n’a pas tout appliqué sur Railway. */
+export async function ensureAuthSchema() {
+  await warnIfForeignUsersTable();
+  await ensureUserAccountColumns();
+  const userIdType = await ensureUsersIdAutoGenerate();
+  try {
+    await ensureUserSessionsTable(userIdType);
   } catch (err) {
     console.error('[users] user_sessions ensure skipped:', err.message);
   }

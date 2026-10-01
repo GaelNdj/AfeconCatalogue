@@ -28,6 +28,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const app = express();
+// Railway / reverse proxy : requis pour express-rate-limit (X-Forwarded-For) et cookies Secure
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 4000;
 const isProd = process.env.NODE_ENV === 'production';
 const uploadDir = path.resolve(__dirname, '..', process.env.UPLOAD_DIR || './uploads');
