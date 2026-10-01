@@ -11,7 +11,8 @@ import {
 import { setSessionCookie, clearSessionCookie } from '../auth/cookies.js';
 import { assertSameOrigin, attachUser, requireUser } from '../middleware/userAuth.js';
 import { sendWelcomeEmail, sendPasswordResetEmail } from '../services/mail.js';
-import { ensureAuthSchema, recordSuccessfulLogin } from '../services/accountLifecycle.js';
+import { CATALOGUE_USERS, ensureCatalogueAuthSchema } from '../auth/catalogueUsers.js';
+import { recordSuccessfulLogin } from '../services/accountLifecycle.js';
 import {
   createResetToken,
   storePasswordResetToken,
@@ -55,7 +56,7 @@ router.get('/me', attachUser, (req, res) => {
 
 router.post('/register', authLimiter, assertSameOrigin, async (req, res, next) => {
   try {
-    await ensureAuthSchema();
+    await ensureCatalogueAuthSchema();
     const emailErr = validateEmail(req.body?.email);
     if (emailErr) return res.status(400).json({ error: emailErr });
     const passErr = validatePassword(req.body?.password);
@@ -71,14 +72,14 @@ router.post('/register', authLimiter, assertSameOrigin, async (req, res, next) =
       return res.status(400).json({ error: 'Nom et prénom requis' });
     }
 
-    const existing = await query(`SELECT id FROM users WHERE email = $1`, [email]);
+    const existing = await query(`SELECT id FROM public.${CATALOGUE_USERS} WHERE email = $1`, [email]);
     if (existing.rows[0]) {
       return res.status(409).json({ error: 'Un compte existe déjà avec cet e-mail' });
     }
 
     const passwordHash = await hashPassword(req.body.password);
     const ins = await query(
-      `INSERT INTO users (email, password_hash, company_name, contact_name, phone, address_line, city)
+      `INSERT INTO public.${CATALOGUE_USERS} (email, password_hash, company_name, contact_name, phone, address_line, city)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, email, company_name, contact_name, phone, address_line, city`,
       [
@@ -119,14 +120,14 @@ router.post('/register', authLimiter, assertSameOrigin, async (req, res, next) =
 
 router.post('/login', authLimiter, assertSameOrigin, async (req, res, next) => {
   try {
-    await ensureAuthSchema();
+    await ensureCatalogueAuthSchema();
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = req.body?.password || '';
     if (!email || !password) {
       return res.status(400).json({ error: 'E-mail et mot de passe requis' });
     }
 
-    const r = await query(`SELECT * FROM users WHERE email = $1`, [email]);
+    const r = await query(`SELECT * FROM public.${CATALOGUE_USERS} WHERE email = $1`, [email]);
     const user = r.rows[0];
     if (!user || !(await verifyPassword(password, user.password_hash))) {
       return res.status(401).json({ error: 'Identifiants incorrects' });
@@ -146,7 +147,7 @@ router.post('/forgot-password', authLimiter, assertSameOrigin, async (req, res, 
     if (emailErr) return res.status(400).json({ error: emailErr });
     const email = String(req.body.email).trim().toLowerCase();
 
-    const r = await query(`SELECT id FROM users WHERE email = $1`, [email]);
+    const r = await query(`SELECT id FROM public.${CATALOGUE_USERS} WHERE email = $1`, [email]);
     const user = r.rows[0];
     if (user) {
       const token = createResetToken();
@@ -180,7 +181,7 @@ router.post('/reset-password', authLimiter, assertSameOrigin, async (req, res, n
     }
 
     const passwordHash = await hashPassword(req.body.password);
-    await query(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [
+    await query(`UPDATE public.${CATALOGUE_USERS} SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [
       passwordHash,
       userId,
     ]);
@@ -208,7 +209,7 @@ router.put('/profile', assertSameOrigin, attachUser, requireUser, async (req, re
       return res.status(400).json({ error: 'Nom de société requis' });
     }
     const r = await query(
-      `UPDATE users SET
+      `UPDATE public.${CATALOGUE_USERS} SET
          company_name = $1,
          contact_name = $2,
          phone = $3,

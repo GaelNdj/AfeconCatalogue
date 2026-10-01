@@ -114,7 +114,10 @@ export async function markOrderPaid(orderId, { sessionId, paymentIntentId } = {}
     await db.query('COMMIT');
 
     const freshOrder = updated.rows[0];
-    const customerEmail = await db.query(`SELECT email FROM users WHERE id = $1`, [order.user_id]);
+    const customerEmail = await db.query(
+      `SELECT email FROM public.catalogue_users WHERE id = $1`,
+      [order.user_id]
+    );
     await sendOrderConfirmationEmails({
       order: freshOrder,
       quote: quote.rows[0],

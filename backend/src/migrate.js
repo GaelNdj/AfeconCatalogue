@@ -1,5 +1,6 @@
 import { pool } from './db.js';
-import { ensureUserAccountColumns, describeIdTypes } from './services/accountLifecycle.js';
+import { ensureCatalogueAuthSchema } from './auth/catalogueUsers.js';
+import { describeIdTypes } from './services/accountLifecycle.js';
 
 const sql = `
 CREATE TABLE IF NOT EXISTS families (
@@ -183,6 +184,32 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'active';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_scheduled_at TIMESTAMPTZ;
 
+CREATE TABLE IF NOT EXISTS catalogue_users (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  company_name VARCHAR(255),
+  phone VARCHAR(50),
+  address_line TEXT,
+  city VARCHAR(100),
+  contact_name VARCHAR(200),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_login_at TIMESTAMPTZ,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  deletion_scheduled_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS catalogue_user_sessions (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES catalogue_users(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_catalogue_user_sessions_user ON catalogue_user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_catalogue_user_sessions_expires ON catalogue_user_sessions(expires_at);
+
 CREATE TABLE IF NOT EXISTS user_sessions (
   id VARCHAR(64) PRIMARY KEY,
   user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -329,7 +356,7 @@ async function migrate() {
         console.error('[migrate] statement skipped:', err.message);
       }
     }
-    await ensureUserAccountColumns();
+    await ensureCatalogueAuthSchema();
     const types = await describeIdTypes();
     console.log('[migrate] column types', types);
     console.log('Migration OK');

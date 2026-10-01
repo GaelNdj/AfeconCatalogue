@@ -144,7 +144,7 @@ adminRouter.get('/', async (_req, res, next) => {
               o.customer_snapshot->>'company_name' AS company_name
        FROM public.orders o
        JOIN public.quotes q ON q.id::text = o.quote_id::text
-       JOIN public.users u ON u.id::text = o.user_id::text
+       JOIN public.catalogue_users u ON u.id::text = o.user_id::text
        ORDER BY o.created_at DESC
        LIMIT 200`
     );

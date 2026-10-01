@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db.js';
+import { CATALOGUE_USERS } from '../auth/catalogueUsers.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { sendAccountDeletionWarningEmail } from '../services/mail.js';
 import {
@@ -46,7 +47,7 @@ router.post('/:id/warn', async (req, res, next) => {
     }
 
     await query(
-      `UPDATE users
+      `UPDATE public.${CATALOGUE_USERS}
        SET status = 'pending_deletion',
            deletion_scheduled_at = NOW() + ($2 || ' days')::interval,
            updated_at = NOW()
@@ -88,7 +89,7 @@ router.delete('/:id', async (req, res, next) => {
       });
     }
 
-    await query(`DELETE FROM users WHERE id = $1`, [id]);
+    await query(`DELETE FROM public.${CATALOGUE_USERS} WHERE id = $1`, [id]);
     res.json({ ok: true, deletedId: id });
   } catch (e) {
     next(e);

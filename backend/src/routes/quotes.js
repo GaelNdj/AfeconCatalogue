@@ -162,7 +162,7 @@ router.post('/', assertSameOrigin, async (req, res, next) => {
 
     if (snapshot.company_name !== req.user.company_name) {
       await db.query(
-        `UPDATE users SET company_name = $1, phone = COALESCE($2, phone),
+        `UPDATE public.catalogue_users SET company_name = $1, phone = COALESCE($2, phone),
            address_line = COALESCE($3, address_line), city = COALESCE($4, city), updated_at = NOW()
          WHERE id = $5`,
         [
