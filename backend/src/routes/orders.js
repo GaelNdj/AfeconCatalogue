@@ -150,21 +150,6 @@ adminRouter.get('/', async (_req, res, next) => {
     );
     res.json({ items: r.rows });
   } catch (e) {
-    // #region agent log
-    fetch('http://127.0.0.1:7581/ingest/20d23877-a71f-467f-86e2-87ccf471af2f', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '913862' },
-      body: JSON.stringify({
-        sessionId: '913862',
-        runId: 'admin-sql',
-        hypothesisId: 'B',
-        location: 'orders.js:adminGET',
-        message: 'admin orders query failed',
-        data: { code: e.code, sqlMessage: e.message },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     next(e);
   }
 });

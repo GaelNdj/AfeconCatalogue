@@ -65,7 +65,6 @@ export default function CartPage() {
                       {i.variant_label && `${i.variant_label} · `}
                       {i.diameter && `${i.diameter} · `}
                       Réf. {i.ref_pro || '—'} · AFE {i.code}
-                      {i.supplier_code && ` · Cat. ${i.supplier_code}`}
                       {i.offer_label && (
                         <span className="ml-1 text-accent">· {i.offer_label}</span>
                       )}

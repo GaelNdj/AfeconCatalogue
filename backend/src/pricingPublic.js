@@ -77,8 +77,6 @@ export function enrichReferencePublic(ref, product, marginRules, exception) {
   return {
     id: ref.id,
     code: publicDisplayCode(ref),
-    /** Affichage temporaire — vérification correspondance AFE / catalogue */
-    supplier_code: ref.code,
     product_id: ref.product_id,
     ref_pro: ref.ref_pro,
     ref_four: ref.ref_four,

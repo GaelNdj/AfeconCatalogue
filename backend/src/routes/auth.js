@@ -115,21 +115,6 @@ router.post('/login', authLimiter, assertSameOrigin, async (req, res, next) => {
     }
 
     await recordSuccessfulLogin(user.id);
-    // #region agent log
-    fetch('http://127.0.0.1:7581/ingest/20d23877-a71f-467f-86e2-87ccf471af2f', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '913862' },
-      body: JSON.stringify({
-        sessionId: '913862',
-        runId: 'accounts-admin',
-        hypothesisId: 'D',
-        location: 'auth.js:login',
-        message: 'login cleared inactivity / recorded last_login',
-        data: { userId: user.id, previousStatus: user.status || 'active' },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     await loginUser(res, user.id);
     res.json({ user: publicUser(user) });
   } catch (e) {

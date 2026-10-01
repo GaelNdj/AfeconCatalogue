@@ -5,7 +5,6 @@ import { sendAccountDeletionWarningEmail } from '../services/mail.js';
 import {
   DELETION_NOTICE_DAYS,
   applyDueDeletions,
-  describeIdTypes,
   ensureUserAccountColumns,
   getAccountById,
   listAccounts,
@@ -16,46 +15,14 @@ import {
 const router = Router();
 router.use(requireAdmin);
 
-function debugLog(hypothesisId, location, message, data) {
-  // #region agent log
-  fetch('http://127.0.0.1:7581/ingest/20d23877-a71f-467f-86e2-87ccf471af2f', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '913862' },
-    body: JSON.stringify({
-      sessionId: '913862',
-      runId: 'accounts-admin',
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-}
-
 router.get('/', async (_req, res, next) => {
   try {
     await ensureUserAccountColumns();
-    const types = await describeIdTypes();
-    debugLog('C', 'adminUsers.js:GET', 'schema types', { types });
     const due = await applyDueDeletions();
     const marked = await markStaleAccountsInactive();
     const items = await listAccounts();
-    debugLog('E', 'adminUsers.js:GET', 'listed accounts', {
-      total: items.length,
-      inactive: items.filter((u) => u.inactive).length,
-      withOrders: items.filter((u) => u.order_count > 0).length,
-      canDelete: items.filter((u) => u.can_delete && u.inactive).length,
-      dueDeleted: due.deleted,
-      markedInactive: marked,
-    });
     res.json({ items, due, markedInactive: marked });
   } catch (e) {
-    debugLog('C', 'adminUsers.js:GET', 'admin users query failed', {
-      code: e.code,
-      sqlMessage: e.message,
-    });
     next(e);
   }
 });
@@ -68,10 +35,6 @@ router.post('/:id/warn', async (req, res, next) => {
     const account = toAdminAccount(row);
 
     if (!account.can_delete) {
-      debugLog('A', 'adminUsers.js:warn', 'blocked warn — has orders', {
-        userId: id,
-        orderCount: account.order_count,
-      });
       return res.status(409).json({
         error: 'Ce compte a déjà commandé. Il ne peut pas être supprimé.',
       });
@@ -82,13 +45,12 @@ router.post('/:id/warn', async (req, res, next) => {
       });
     }
 
-    const scheduled = await query(
+    await query(
       `UPDATE users
        SET status = 'pending_deletion',
            deletion_scheduled_at = NOW() + ($2 || ' days')::interval,
            updated_at = NOW()
-       WHERE id = $1
-       RETURNING id, status, deletion_scheduled_at`,
+       WHERE id = $1`,
       [id, String(DELETION_NOTICE_DAYS)]
     );
 
@@ -98,12 +60,6 @@ router.post('/:id/warn', async (req, res, next) => {
       companyName: account.company_name,
       loginUrl: `${base}/connexion`,
       days: DELETION_NOTICE_DAYS,
-    });
-
-    debugLog('C', 'adminUsers.js:warn', 'warning scheduled', {
-      userId: id,
-      mailSent: mail.sent,
-      scheduledAt: scheduled.rows[0]?.deletion_scheduled_at,
     });
 
     const updated = toAdminAccount(await getAccountById(id));
@@ -122,10 +78,6 @@ router.delete('/:id', async (req, res, next) => {
     const account = toAdminAccount(row);
 
     if (!account.can_delete) {
-      debugLog('A', 'adminUsers.js:delete', 'blocked delete — has orders', {
-        userId: id,
-        orderCount: account.order_count,
-      });
       return res.status(409).json({
         error: 'Ce compte a déjà commandé. Il ne peut pas être supprimé.',
       });
@@ -137,10 +89,6 @@ router.delete('/:id', async (req, res, next) => {
     }
 
     await query(`DELETE FROM users WHERE id = $1`, [id]);
-    debugLog('B', 'adminUsers.js:delete', 'deleted account without orders', {
-      userId: id,
-      orderCount: account.order_count,
-    });
     res.json({ ok: true, deletedId: id });
   } catch (e) {
     next(e);

@@ -21,6 +21,7 @@ import adminUsersRouter from './routes/adminUsers.js';
 import paymentsRouter from './routes/payments.js';
 import { attachUser } from './middleware/userAuth.js';
 import { isSmtpConfigured } from './services/mailTransporter.js';
+import { getPrimaryFrontendOrigin, isFrontendOriginAllowed } from './frontendOrigin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env') });
@@ -29,11 +30,7 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const isProd = process.env.NODE_ENV === 'production';
 const uploadDir = path.resolve(__dirname, '..', process.env.UPLOAD_DIR || './uploads');
-const railwayHost = process.env.RAILWAY_PUBLIC_DOMAIN
-  ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-  : null;
-const frontendOrigin =
-  process.env.FRONTEND_URL?.trim() || railwayHost || 'http://localhost:5173';
+const frontendOrigin = getPrimaryFrontendOrigin();
 const frontendDist = path.resolve(__dirname, '../../frontend/dist');
 const serveFrontend = isProd && fs.existsSync(path.join(frontendDist, 'index.html'));
 
@@ -44,7 +41,13 @@ app.use(
 );
 app.use(
   cors({
-    origin: frontendOrigin,
+    origin(origin, callback) {
+      if (!origin || isFrontendOriginAllowed(origin, null)) {
+        callback(null, origin || frontendOrigin);
+      } else {
+        callback(new Error('CORS non autorisé'));
+      }
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'X-Admin-Key'],

@@ -7,7 +7,7 @@ nixPkgs = ["nodejs_20"]
 cmds = ["npm run install:all"]
 
 [phases.build]
-cmds = ["node scripts/log-frontend-build.js", "npm run build --prefix frontend"]
+cmds = ["node scripts/check-build-deps.js", "npm run build --prefix frontend"]
 
 [start]
 cmd = "npm start"

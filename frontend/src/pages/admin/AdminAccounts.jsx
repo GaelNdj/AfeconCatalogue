@@ -45,25 +45,6 @@ export default function AdminAccounts() {
   async function load() {
     const r = await api.getAdminUsers();
     setItems(r.items || []);
-    // #region agent log
-    fetch('http://127.0.0.1:7581/ingest/20d23877-a71f-467f-86e2-87ccf471af2f', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '913862' },
-      body: JSON.stringify({
-        sessionId: '913862',
-        runId: 'accounts-admin',
-        hypothesisId: 'E',
-        location: 'AdminAccounts.jsx:load',
-        message: 'admin accounts loaded',
-        data: {
-          total: (r.items || []).length,
-          inactiveNoOrder: (r.items || []).filter((u) => u.inactive && u.can_delete).length,
-          withOrders: (r.items || []).filter((u) => u.order_count > 0).length,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   }
 
   useEffect(() => {

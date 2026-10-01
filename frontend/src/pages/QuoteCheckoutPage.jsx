@@ -17,7 +17,7 @@ function cartBlocksOnlineOrder(items) {
 function buildQuotePayload(items, profile) {
   return {
     items: items.map((i) => ({
-      code: i.supplier_code || i.code,
+      code: i.code,
       qty: i.qty,
     })),
     ...profile,

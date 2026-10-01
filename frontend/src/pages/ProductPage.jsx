@@ -236,7 +236,6 @@ export default function ProductPage() {
                     <th className="px-2 py-2.5 sm:px-3 sm:py-3">Dimensions</th>
                     <th className="px-2 py-2.5 sm:px-3 sm:py-3">Réf. Pro</th>
                     <th className="whitespace-nowrap px-2 py-2.5 sm:px-3 sm:py-3">Code AFE</th>
-                    <th className="whitespace-nowrap px-2 py-2.5 sm:px-3 sm:py-3">Code cat.</th>
                     <th className="px-2 py-2.5 sm:px-3 sm:py-3">Prix HT</th>
                     <th className="px-1.5 py-2.5 sm:py-3">Cond.</th>
                     <th className="px-1.5 py-2.5 sm:py-3">Qté</th>
@@ -260,9 +259,6 @@ export default function ProductPage() {
                       <td className="px-2 py-2.5 text-muted break-words sm:px-3 sm:py-3">{r.ref_pro || '—'}</td>
                       <td className="whitespace-nowrap px-2 py-2.5 font-mono text-[10px] font-semibold text-brand sm:px-3 sm:py-3 sm:text-xs">
                         {r.code}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2.5 font-mono text-[10px] text-muted sm:px-3 sm:py-3 sm:text-xs">
-                        {r.supplier_code || '—'}
                       </td>
                     <td className="px-2 py-2.5 sm:px-3 sm:py-3">
                       {quote ? (
